@@ -1,0 +1,1 @@
+﻿window.FIRSTWOOD_REQUIRE_LOGIN = true;
