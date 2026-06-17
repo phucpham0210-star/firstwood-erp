@@ -222,6 +222,10 @@
       color: #ffffff;
     }
 
+    .login-signup-only.is-hidden {
+      display: none !important;
+    }
+
     body:not(.account-admin) #accountManageBtn {
       display: none !important;
     }
@@ -2729,9 +2733,16 @@
       <form id="loginForm">
         <div class="modal-body">
           <div class="form-grid" style="grid-template-columns: 1fr;">
+            <div class="stat-note login-signup-only is-hidden" id="signupModeNote">
+              Tài khoản tự đăng ký sẽ mặc định là Người xem. Admin sẽ cấp quyền chỉnh sửa nếu cần.
+            </div>
             <div class="field">
               <label>Email<span>Tài khoản</span></label>
               <input class="control" id="loginEmail" name="email" type="text" autocomplete="username" required placeholder="Nhập tài khoản">
+            </div>
+            <div class="field login-signup-only is-hidden">
+              <label>Tên hiển thị<span>Display name</span></label>
+              <input class="control" id="signupDisplayName" name="displayName" type="text" autocomplete="name" placeholder="Tên công ty hoặc người dùng">
             </div>
             <div class="field">
               <label>Mật khẩu<span>Password</span></label>
@@ -2744,6 +2755,7 @@
         </div>
         <div class="modal-actions">
           <button class="action-btn" data-close-modal="loginModal" type="button">Cancel<span>Hủy</span></button>
+          <button class="action-btn" id="loginModeToggleBtn" type="button">Create account<span>Tạo tài khoản</span></button>
           <button class="action-btn primary" type="submit">Login<span>Đăng nhập</span></button>
         </div>
       </form>
@@ -3103,6 +3115,7 @@
     let managedAccounts = [];
     let auditHistory = [];
     let currentUserRole = "viewer";
+    let loginFormMode = "login";
     let isAdminMode = false;
     let lastSupabaseUpdatedAt = "";
     let supabaseSaveTimer = null;
@@ -3140,6 +3153,9 @@
       "Show": { en: "Show", vi: "Hiện" },
       "Hide": { en: "Hide", vi: "Ẩn" },
       "Login": { en: "Login", vi: "Đăng nhập" },
+      "Sign up": { en: "Sign up", vi: "Đăng ký" },
+      "Create account": { en: "Create account", vi: "Tạo tài khoản" },
+      "Back to login": { en: "Back to login", vi: "Về đăng nhập" },
       "Logout": { en: "Logout", vi: "Đăng xuất" },
       "Admin": { en: "Admin", vi: "Quản trị" },
       "View Only": { en: "View Only", vi: "Chỉ xem" },
@@ -3424,6 +3440,28 @@
       return currentUserProfile;
     }
 
+    async function ensureViewerProfileForSupabaseUser(user, displayName = "") {
+      if (!user?.id) return null;
+      const safeName = String(displayName || user.email || "Customer").trim() || "Customer";
+      try {
+        await supabaseFetch("/rest/v1/erp_profiles?on_conflict=user_id", {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+          body: JSON.stringify({
+            user_id: user.id,
+            display_name: safeName,
+            role: "viewer"
+          })
+        });
+      } catch (error) {
+        console.warn("Không thể tạo profile viewer, có thể Supabase trigger/RLS đã xử lý hoặc cần cập nhật SQL:", error);
+      }
+      currentUserProfile = { display_name: safeName, role: "viewer" };
+      setCurrentRole("viewer");
+      applyRoleMode();
+      return currentUserProfile;
+    }
+
     function isReadOnlyMode() {
       return !isAdminMode;
     }
@@ -3490,17 +3528,47 @@
     function openLoginModal() {
       const emailInput = document.getElementById("loginEmail");
       const passwordInput = document.getElementById("loginPassword");
+      const displayNameInput = document.getElementById("signupDisplayName");
       if (emailInput) emailInput.value = "";
+      if (displayNameInput) displayNameInput.value = "";
       if (passwordInput) {
         passwordInput.value = "";
         passwordInput.type = "password";
       }
+      setLoginFormMode("login");
       updateLoginPasswordToggle();
       openModal("loginModal");
       document.querySelectorAll('#loginModal [data-close-modal="loginModal"]').forEach(button => {
         button.style.display = ERP_REQUIRE_LOGIN && !hasActiveLogin() ? "none" : "";
       });
-      setTimeout(() => passwordInput?.focus(), 50);
+      setTimeout(() => emailInput?.focus(), 50);
+    }
+
+    function setLoginFormMode(mode) {
+      loginFormMode = mode === "signup" ? "signup" : "login";
+      const isSignup = loginFormMode === "signup";
+      const title = document.getElementById("loginTitle");
+      if (title) {
+        title.firstChild.textContent = isSignup ? "Tạo tài khoản" : "Đăng Nhập ERP";
+        const label = title.querySelector("span");
+        if (label) label.textContent = isSignup ? "Tài khoản mới mặc định là Người xem" : "Dùng tài khoản admin hoặc tài khoản khách";
+      }
+      document.querySelectorAll("#loginModal .login-signup-only").forEach((node) => {
+        node.classList.toggle("is-hidden", !isSignup);
+      });
+      const submitButton = document.querySelector('#loginForm button[type="submit"]');
+      if (submitButton) {
+        submitButton.firstChild.textContent = isSignup ? "Sign up" : "Login";
+        const label = submitButton.querySelector("span");
+        if (label) label.textContent = isSignup ? "Đăng ký" : "Đăng nhập";
+      }
+      const toggleButton = document.getElementById("loginModeToggleBtn");
+      if (toggleButton) {
+        toggleButton.firstChild.textContent = isSignup ? "Back to login" : "Create account";
+        const label = toggleButton.querySelector("span");
+        if (label) label.textContent = isSignup ? "Về đăng nhập" : "Tạo tài khoản";
+      }
+      scheduleApplyUiLanguage(20);
     }
 
     function updateLoginPasswordToggle() {
@@ -3860,9 +3928,71 @@
       showToast("Đã lưu tài khoản.");
     }
 
+    async function submitSignupForm(form) {
+      const email = form.elements.email?.value.trim();
+      const password = form.elements.password?.value || "";
+      const displayName = form.elements.displayName?.value.trim() || email;
+      if (!email || !password) {
+        showToast("Vui lòng nhập email và mật khẩu để tạo tài khoản.");
+        return;
+      }
+      if (!email.includes("@")) {
+        showToast("Vui lòng nhập email hợp lệ để khách có thể đăng nhập.");
+        return;
+      }
+      if (password.length < 6) {
+        showToast("Mật khẩu tối thiểu 6 ký tự.");
+        return;
+      }
+
+      const signupResult = await supabaseFetch("/auth/v1/signup", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password,
+          data: { display_name: displayName }
+        })
+      }, false);
+
+      if (signupResult?.access_token) {
+        saveSupabaseSession(signupResult);
+        await ensureViewerProfileForSupabaseUser(signupResult.user, displayName);
+        await loadSupabaseState({ forceApply: true, showMessage: true });
+        applyRoleMode();
+        closeModal("loginModal");
+        form.reset();
+        setLoginFormMode("login");
+        showToast("Đã tạo tài khoản. Quyền hiện tại là Người xem.");
+        return;
+      }
+
+      if (signupResult?.user) {
+        closeModal("loginModal");
+        form.reset();
+        setLoginFormMode("login");
+        showToast("Đã tạo tài khoản Người xem. Nếu Supabase yêu cầu xác nhận email, hãy xác nhận rồi đăng nhập.");
+        return;
+      }
+
+      showToast("Đã gửi yêu cầu tạo tài khoản. Vui lòng thử đăng nhập lại.");
+    }
+
     async function submitLoginForm(event) {
       event.preventDefault();
       const form = event.currentTarget;
+      if (loginFormMode === "signup") {
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+        try {
+          await submitSignupForm(form);
+        } catch (error) {
+          console.warn("Tạo tài khoản Supabase thất bại:", error);
+          showToast("Không tạo được tài khoản. Có thể email đã tồn tại hoặc Supabase chưa bật đăng ký.");
+        } finally {
+          if (submitButton) submitButton.disabled = false;
+        }
+        return;
+      }
       const email = form.elements.email?.value.trim();
       const password = form.elements.password?.value || "";
       if (!email || !password) {
@@ -9669,6 +9799,11 @@
       button.addEventListener("click", () => setUiLanguage(button.dataset.language));
     });
     document.getElementById("loginForm")?.addEventListener("submit", submitLoginForm);
+    document.getElementById("loginModeToggleBtn")?.addEventListener("click", () => {
+      setLoginFormMode(loginFormMode === "signup" ? "login" : "signup");
+      const focusTarget = loginFormMode === "signup" ? document.getElementById("signupDisplayName") : document.getElementById("loginEmail");
+      setTimeout(() => focusTarget?.focus(), 30);
+    });
     document.getElementById("toggleLoginPasswordBtn")?.addEventListener("click", () => {
       const passwordInput = document.getElementById("loginPassword");
       if (!passwordInput) return;
