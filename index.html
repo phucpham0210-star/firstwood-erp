@@ -9414,16 +9414,16 @@
         const id = index + 1;
         const name = xmlAttr(image.name || `Preview ${id}`);
         return `
-  <xdr:oneCellAnchor>
+  <xdr:twoCellAnchor editAs="oneCell">
     <xdr:from><xdr:col>${image.col}</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>${image.row}</xdr:row><xdr:rowOff>57150</xdr:rowOff></xdr:from>
-    <xdr:ext cx="666750" cy="571500"/>
+    <xdr:to><xdr:col>${image.col + 1}</xdr:col><xdr:colOff>-95250</xdr:colOff><xdr:row>${image.row + 1}</xdr:row><xdr:rowOff>-57150</xdr:rowOff></xdr:to>
     <xdr:pic>
       <xdr:nvPicPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvPicPr/></xdr:nvPicPr>
       <xdr:blipFill><a:blip r:embed="rId${id}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
       <xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
     </xdr:pic>
     <xdr:clientData/>
-  </xdr:oneCellAnchor>`;
+  </xdr:twoCellAnchor>`;
       }).join("");
       return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors}
