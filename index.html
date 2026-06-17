@@ -2995,7 +2995,7 @@
         button.classList.toggle("active", button.dataset.language === currentUiLanguage);
       });
 
-      root.querySelectorAll?.(".nav-item, .action-btn, .tab, th, label, .modal-title, .status-pill, .count-line, .filter-launch, .mini-action, .mini-label").forEach((element) => {
+      root.querySelectorAll?.(".nav-item, .action-btn, .tab, th, label, .modal-title, .status-pill, .filter-launch, .mini-action, .mini-label").forEach((element) => {
         localizePairElement(element);
         if (element.matches("button, .mini-action")) localizeExactElement(element);
       });
@@ -3011,8 +3011,41 @@
     function setUiLanguage(language) {
       currentUiLanguage = language === "en" ? "en" : "vi";
       localStorage.setItem(ERP_LANGUAGE_STORAGE_KEY, currentUiLanguage);
+      renderShipmentCards();
+      renderShipmentItemsTable({ refreshFilters: false, syncFilters: false, applyFilters: false });
+      renderOrderCards();
+      renderOrderItemsTable();
+      setSheet2VisibleCount(getSheet2VisibleCountFromDom());
       applyUiLanguage();
       showToast(currentUiLanguage === "en" ? "Interface switched to English." : "Đã chuyển giao diện sang tiếng Việt.");
+    }
+
+    function uiText(enText, viText) {
+      return currentUiLanguage === "en" ? enText : viText;
+    }
+
+    function formatUiCount(count, enSingular, enPlural, viUnit) {
+      const value = Number(count) || 0;
+      return currentUiLanguage === "en"
+        ? `${value.toLocaleString()} ${value === 1 ? enSingular : enPlural}`
+        : `${value.toLocaleString()} ${viUnit}`;
+    }
+
+    function setCountLineContent(element, count, enSingular, enPlural, viUnit, enSub, viSub) {
+      if (!element) return;
+      element.innerHTML = `${formatUiCount(count, enSingular, enPlural, viUnit)}<span>${uiText(enSub, viSub)}</span>`;
+    }
+
+    function formatShipmentStatusLabel(status) {
+      const normalized = String(status || "").trim();
+      if (normalized === "Nháp") return uiText("Draft", "Nháp");
+      if (normalized === "Tạm nhận") return uiText("Temporarily received", "Tạm nhận");
+      if (normalized === "Đã nhận/Lỗi") return uiText("Received/Defective", "Đã nhận/Lỗi");
+      if (normalized === "Đã nhận") return uiText("Received", "Đã nhận");
+      if (normalized === "Chưa nhận") return uiText("Not received", "Chưa nhận");
+      if (normalized === "Lỗi") return uiText("Defective", "Lỗi");
+      if (normalized === "Chênh lệch") return uiText("Variance", "Chênh lệch");
+      return normalized;
     }
 
     const uiLanguageObserver = new MutationObserver(() => {
@@ -3627,15 +3660,13 @@
     function updateCountForTable(table, visibleRows) {
       if (table.querySelector("[data-bom-body]")) {
         const count = document.querySelector("[data-bom-count]");
-        if (count) count.innerHTML = `${visibleRows} hardware lines<span>Dòng phần cứng</span>`;
+        setCountLineContent(count, visibleRows, "hardware line", "hardware lines", "dòng phần cứng", "Hardware lines", "Dòng phần cứng");
         return;
       }
       const section = table.closest(".sheet-view") || document.querySelector(".main");
       const count = section.querySelector(".count-line");
       if (!count) return;
-      const label = visibleRows === 1 ? "item" : "items";
-      const sub = count.querySelector("span")?.textContent || "";
-      count.innerHTML = `${visibleRows} ${label}<span>${sub}</span>`;
+      setCountLineContent(count, visibleRows, "item", "items", "dòng", "Visible rows", "Dòng đang hiển thị");
     }
 
     function parseNumber(value) {
@@ -4767,11 +4798,11 @@
         const empty = document.createElement("div");
         empty.className = "stat-note";
         empty.style.padding = "16px";
-        empty.textContent = "Không có mã sản phẩm phù hợp.";
+        empty.textContent = uiText("No matching product codes.", "Không có mã sản phẩm phù hợp.");
         list.appendChild(empty);
         Array.from(document.querySelectorAll("[data-bom-body] tr:not([data-bom-entry-row])")).forEach((row) => row.classList.add("is-hidden"));
         const count = document.querySelector("[data-bom-count]");
-        if (count) count.innerHTML = `0 hardware lines<span>Dòng phần cứng</span>`;
+        setCountLineContent(count, 0, "hardware line", "hardware lines", "dòng phần cứng", "Hardware lines", "Dòng phần cứng");
         return;
       }
       products.forEach((product) => list.appendChild(renderBomProductCard(product, activeCode)));
@@ -4793,7 +4824,7 @@
       });
       if (entryRow) entryRow.classList.remove("is-hidden");
       const count = document.querySelector("[data-bom-count]");
-      if (count) count.innerHTML = `${visibleRows} hardware lines<span>Dòng phần cứng</span>`;
+      setCountLineContent(count, visibleRows, "hardware line", "hardware lines", "dòng phần cứng", "Hardware lines", "Dòng phần cứng");
       if (typeof applySheet2Filters === "function") applySheet2Filters();
       if (announce) showToast(`Đã chọn BOM: ${parentCode}`);
     }
@@ -5508,16 +5539,16 @@
       if (isBlankActive) {
         blankCard.innerHTML = `
           <div class="mini-label" style="display:flex; flex-direction:column; gap:4px;">
-            Số Hóa Đơn: 
+            ${uiText("Invoice No:", "Số Hóa Đơn:")} 
             <input class="bom-inline-input" style="width:100%" id="newShipmentInvoice" placeholder="INV-...">
           </div>
-          <input class="bom-inline-input" style="width:100%; margin-top:4px;" id="newShipmentSupplier" placeholder="Người gửi/NCC...">
+          <input class="bom-inline-input" style="width:100%; margin-top:4px;" id="newShipmentSupplier" placeholder="${uiText("Sender/Supplier...", "Người gửi/NCC...")}">
           <div class="shipment-meta-grid" style="margin-top:6px">
             <div class="shipment-meta-item"><span>ETD</span><input type="date" class="bom-inline-input" style="width:100%" id="newShipmentEtd"></div>
             <div class="shipment-meta-item"><span>ETA</span><input type="date" class="bom-inline-input" style="width:100%" id="newShipmentEta"></div>
             <div class="shipment-meta-item"><span>RGD</span><input type="date" class="bom-inline-input" style="width:100%" id="newShipmentRgd"></div>
             <div class="shipment-meta-item">
-              <span>Trạng thái</span>
+              <span>${uiText("Status", "Trạng thái")}</span>
               <select class="control" id="newShipmentStatus" style="width:100%; height:26px; font-size:10px; padding:0 4px; background:var(--surface); border:1px solid var(--line); border-radius:4px; color:var(--text);">
                 <option value="" selected>Tự động / Auto</option>
                 <option value="Nháp">Nháp</option>
@@ -5534,7 +5565,7 @@
         blankCard.innerHTML = `
           <div style="display:grid; place-items:center; height:100%; color:var(--text-blue); font-weight:900; opacity:0.85;">
             <div style="font-size:24px; margin-bottom:2px;">+</div>
-            <div>Tạo Lô Hàng Mới</div>
+            <div>${uiText("Create New Shipment", "Tạo Lô Hàng Mới")}</div>
           </div>
         `;
         blankCard.addEventListener("click", () => {
@@ -5562,7 +5593,7 @@
         if (isEditing) {
           card.innerHTML = `
             <div class="mini-label" style="display:flex; flex-direction:column; gap:4px;">
-              Số Hóa Đơn: 
+              ${uiText("Invoice No:", "Số Hóa Đơn:")} 
               <input class="bom-inline-input" style="width:100%" id="editShipmentInvoice-${index}" value="${shipment.invoice}">
             </div>
             <input class="bom-inline-input" style="width:100%; margin-top:4px;" id="editShipmentSupplier-${index}" value="${shipment.supplier}">
@@ -5571,7 +5602,7 @@
               <div class="shipment-meta-item"><span>ETA</span><input type="date" class="bom-inline-input" style="width:100%" id="editShipmentEta-${index}" value="${shipment.eta}"></div>
               <div class="shipment-meta-item"><span>RGD</span><input type="date" class="bom-inline-input" style="width:100%" id="editShipmentRgd-${index}" value="${shipment.rgd || ""}"></div>
               <div class="shipment-meta-item">
-                <span>Trạng thái</span>
+                <span>${uiText("Status", "Trạng thái")}</span>
                 <select class="control" id="editShipmentStatus-${index}" style="width:100%; height:26px; font-size:10px; padding:0 4px; background:var(--surface); border:1px solid var(--line); border-radius:4px; color:var(--text);">
                   <option value="" ${!shipment.status ? "selected" : ""}>Tự động / Auto</option>
                   <option value="Nháp" ${shipment.status === "Nháp" ? "selected" : ""}>Nháp</option>
@@ -5587,13 +5618,13 @@
         } else {
           let statusBadge = "";
           if (shipment.status === "Nháp") {
-            statusBadge = `<span class="badge purple" style="font-size:10px; padding:2px 8px; min-height:18px;">Nháp</span>`;
+            statusBadge = `<span class="badge purple" style="font-size:10px; padding:2px 8px; min-height:18px;">${formatShipmentStatusLabel("Nháp")}</span>`;
           } else if (shipment.status === "Tạm nhận") {
-            statusBadge = `<span class="badge yellow" style="font-size:10px; padding:2px 8px; min-height:18px;">Tạm nhận</span>`;
+            statusBadge = `<span class="badge yellow" style="font-size:10px; padding:2px 8px; min-height:18px;">${formatShipmentStatusLabel("Tạm nhận")}</span>`;
           } else if (shipment.rgd) {
-            statusBadge = `<span class="badge green" style="font-size:10px; padding:2px 8px; min-height:18px;">Đã nhận</span>`;
+            statusBadge = `<span class="badge green" style="font-size:10px; padding:2px 8px; min-height:18px;">${formatShipmentStatusLabel("Đã nhận")}</span>`;
           } else {
-            statusBadge = `<span class="badge red" style="font-size:10px; padding:2px 8px; min-height:18px;">Chưa nhận</span>`;
+            statusBadge = `<span class="badge red" style="font-size:10px; padding:2px 8px; min-height:18px;">${formatShipmentStatusLabel("Chưa nhận")}</span>`;
           }
 
           card.innerHTML = `
@@ -5603,15 +5634,15 @@
               <button class="popover-btn danger" onclick="deleteShipment(${index}, event)">Xóa</button>
             </div>
             <div class="mini-label" style="display:flex; justify-content:space-between; align-items:center;">
-              <span class="shipment-invoice-label">Số Hóa Đơn: <strong>${shipment.invoice}</strong></span>
+              <span class="shipment-invoice-label">${uiText("Invoice No:", "Số Hóa Đơn:")} <strong>${shipment.invoice}</strong></span>
               ${statusBadge}
             </div>
             <div class="shipment-meta-grid">
-              <div class="shipment-meta-item"><span>Người gửi</span>${shipment.supplier || "-"}</div>
-              <div class="shipment-meta-item"><span>Mặt hàng</span>${aggregates.itemCount} mã hàng</div>
-              <div class="shipment-meta-item"><span>SL Chứng từ</span>${aggregates.docTotal.toLocaleString()}</div>
+              <div class="shipment-meta-item"><span>${uiText("Sender", "Người gửi")}</span>${shipment.supplier || "-"}</div>
+              <div class="shipment-meta-item"><span>${uiText("Items", "Mặt hàng")}</span>${formatUiCount(aggregates.itemCount, "item", "items", "mã hàng")}</div>
+              <div class="shipment-meta-item"><span>${uiText("Doc Qty", "SL Chứng từ")}</span>${aggregates.docTotal.toLocaleString()}</div>
               <div class="shipment-meta-item"><span>ETD</span>${shipment.etd}</div>
-              <div class="shipment-meta-item"><span>SL Thực nhận</span>${aggregates.recTotal.toLocaleString()}</div>
+              <div class="shipment-meta-item"><span>${uiText("Rec Qty", "SL Thực nhận")}</span>${aggregates.recTotal.toLocaleString()}</div>
               <div class="shipment-meta-item"><span>ETA</span>${shipment.eta}</div>
               <div class="shipment-meta-item"><span>RGD</span>${shipment.rgd || `<span style="color:var(--muted); font-weight:normal;">-</span>`}</div>
             </div>
@@ -5658,15 +5689,15 @@
       if (!tbody) return;
       
       if (activeShipmentIndex === importShipments.length) {
-        tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:24px; color:var(--muted); font-weight:800; font-size:12px;">Vui lòng hoàn thành tạo lô hàng mới ở phía trên trước khi thêm mặt hàng!</td></tr>`;
-        if (countEl) countEl.innerHTML = `0 items<span>Dòng chi tiết lô hàng</span>`;
+        tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:24px; color:var(--muted); font-weight:800; font-size:12px;">${uiText("Please finish creating the shipment above before adding items.", "Vui lòng hoàn thành tạo lô hàng mới ở phía trên trước khi thêm mặt hàng!")}</td></tr>`;
+        setCountLineContent(countEl, 0, "item", "items", "mặt hàng", "Shipment detail rows", "Dòng chi tiết lô hàng");
         return;
       }
       
       const shipment = importShipments[activeShipmentIndex];
       if (!shipment) {
         tbody.replaceChildren();
-        if (countEl) countEl.innerHTML = `0 items<span>Dòng chi tiết lô hàng</span>`;
+        setCountLineContent(countEl, 0, "item", "items", "mặt hàng", "Shipment detail rows", "Dòng chi tiết lô hàng");
         return;
       }
 
@@ -5696,7 +5727,7 @@
           <td data-editable="number">${(item.docQty || 0).toLocaleString()}</td>
           <td data-editable="number">${(item.recQty || 0).toLocaleString()}</td>
           <td data-editable="text">${item.note || "-"}</td>
-          <td><span class="badge ${status.class}">${status.label}</span></td>
+          <td><span class="badge ${status.class}">${formatShipmentStatusLabel(status.label)}</span></td>
           <td>
             <div class="row-actions">
               <button class="mini-action primary" data-import-row-edit>Sửa</button>
@@ -5747,7 +5778,7 @@
       });
 
       if (countEl) {
-        countEl.innerHTML = `${shipment.items.length} items<span>Dòng chi tiết lô hàng</span>`;
+        setCountLineContent(countEl, shipment.items.length, "item", "items", "mặt hàng", "Shipment detail rows", "Dòng chi tiết lô hàng");
       }
 
       // Initialize/Update cascading filters!
@@ -6133,8 +6164,15 @@
 
       const countEl = document.getElementById("importItemsCount");
       if (countEl) {
-        const label = hasActiveFilters ? "Dòng chi tiết lô hàng (Đã lọc)" : "Dòng chi tiết lô hàng";
-        countEl.innerHTML = `${visibleCount} items<span>${label}</span>`;
+        setCountLineContent(
+          countEl,
+          visibleCount,
+          "item",
+          "items",
+          "mặt hàng",
+          hasActiveFilters ? "Shipment detail rows (filtered)" : "Shipment detail rows",
+          hasActiveFilters ? "Dòng chi tiết lô hàng (Đã lọc)" : "Dòng chi tiết lô hàng"
+        );
       }
     }
 
@@ -6413,7 +6451,7 @@
 
     function setSheet2VisibleCount(visibleCount) {
       const count = document.querySelector("[data-bom-count]");
-      if (count) count.innerHTML = `${visibleCount} hardware lines<span>Dòng phần cứng</span>`;
+      setCountLineContent(count, visibleCount, "hardware line", "hardware lines", "dòng phần cứng", "Hardware lines", "Dòng phần cứng");
     }
 
     function initSheet2Filters() {
@@ -10273,7 +10311,7 @@
 
         const countEl = document.getElementById("sheet5OrderCountLine");
         if (countEl) {
-          countEl.innerHTML = `${workOrders.length} work orders<span>Lệnh sản xuất đang theo dõi</span>`;
+          setCountLineContent(countEl, workOrders.length, "work order", "work orders", "lệnh sản xuất", "Tracked work orders", "Lệnh sản xuất đang theo dõi");
         }
         return;
       }
@@ -10434,7 +10472,7 @@
       // Update the head count indicators
       const countEl = document.getElementById("sheet5OrderCountLine");
       if (countEl) {
-        countEl.innerHTML = `${salesOrders.length} orders<span>Đơn hàng đang theo dõi</span>`;
+        setCountLineContent(countEl, salesOrders.length, "order", "orders", "đơn hàng", "Tracked orders", "Đơn hàng đang theo dõi");
       }
     }
 
