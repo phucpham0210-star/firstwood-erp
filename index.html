@@ -222,6 +222,10 @@
       color: #ffffff;
     }
 
+    body:not(.account-admin) #accountManageBtn {
+      display: none !important;
+    }
+
     body.view-only #layoutEditBtn,
     body.view-only #manualEntryBtn,
     body.view-only #uploadExcelBtn,
@@ -2531,7 +2535,7 @@
       </div>
       <div class="modal-body">
         <div class="stat-note" style="margin-bottom:12px;">
-          Tạo tài khoản tại đây để khách đăng nhập. Quyền Admin được sửa dữ liệu và quản lý tài khoản; quyền Chỉ xem chỉ được xem và xuất Excel.
+          Tạo tài khoản tại đây để khách đăng nhập. Admin được quản lý tài khoản; Người được sửa được chỉnh dữ liệu; Người xem chỉ được xem và xuất Excel.
         </div>
         <div class="form-grid" style="grid-template-columns: 1.2fr 1fr 0.8fr auto; align-items:end;">
           <div class="field">
@@ -2545,7 +2549,8 @@
           <div class="field">
             <label>Quyền<span>Role</span></label>
             <select class="control" id="accountRoleInput">
-              <option value="viewer">Chỉ xem</option>
+              <option value="viewer">Người xem</option>
+              <option value="editor">Người được sửa</option>
               <option value="admin">Admin</option>
             </select>
           </div>
@@ -2854,6 +2859,7 @@
     let supabaseSession = loadSupabaseSession();
     let currentLocalAccount = loadLocalAccountSession();
     let managedAccounts = [];
+    let currentUserRole = "viewer";
     let isAdminMode = false;
     let lastSupabaseUpdatedAt = "";
     let supabaseSaveTimer = null;
@@ -2894,6 +2900,9 @@
       "Logout": { en: "Logout", vi: "Đăng xuất" },
       "Admin": { en: "Admin", vi: "Quản trị" },
       "View Only": { en: "View Only", vi: "Chỉ xem" },
+      "Can Edit": { en: "Can Edit", vi: "Được sửa" },
+      "Người được sửa": { en: "Can Edit", vi: "Người được sửa" },
+      "Người xem": { en: "Viewer", vi: "Người xem" },
       "+ Manual Entry": { en: "+ Manual Entry", vi: "+ Nhập thủ công" }
     };
 
@@ -3106,6 +3115,24 @@
       return Boolean(getSupabaseUser() || currentLocalAccount);
     }
 
+    function normalizeUserRole(role) {
+      const normalized = String(role || "").trim().toLowerCase();
+      if (normalized === "admin") return "admin";
+      if (normalized === "editor") return "editor";
+      return "viewer";
+    }
+
+    function setCurrentRole(role) {
+      currentUserRole = normalizeUserRole(role);
+      isAdminMode = currentUserRole === "admin" || currentUserRole === "editor";
+      if (isAdminMode) localStorage.setItem(ERP_ROLE_STORAGE_KEY, currentUserRole);
+      else localStorage.removeItem(ERP_ROLE_STORAGE_KEY);
+    }
+
+    function canManageAccounts() {
+      return currentUserRole === "admin";
+    }
+
     async function supabaseFetch(path, options = {}, useUserToken = true) {
       const headers = {
         apikey: ERP_SUPABASE_KEY,
@@ -3138,8 +3165,7 @@
         console.warn("Không thể làm mới phiên Supabase:", error);
         saveSupabaseSession(null);
         currentUserProfile = null;
-        isAdminMode = false;
-        localStorage.removeItem(ERP_ROLE_STORAGE_KEY);
+        setCurrentRole("viewer");
         applyRoleMode();
         return false;
       }
@@ -3150,9 +3176,7 @@
       if (!user?.id) return null;
       const rows = await supabaseFetch(`/rest/v1/erp_profiles?select=display_name,role&user_id=eq.${encodeURIComponent(user.id)}&limit=1`);
       currentUserProfile = Array.isArray(rows) ? rows[0] || null : null;
-      isAdminMode = currentUserProfile?.role === "admin";
-      if (isAdminMode) localStorage.setItem(ERP_ROLE_STORAGE_KEY, "admin");
-      else localStorage.removeItem(ERP_ROLE_STORAGE_KEY);
+      setCurrentRole(currentUserProfile?.role);
       applyRoleMode();
       return currentUserProfile;
     }
@@ -3176,15 +3200,22 @@
       }
       const status = document.getElementById("roleStatusBtn");
       if (status) {
-        status.firstChild.textContent = isAdminMode ? "Admin" : "View Only";
+        status.firstChild.textContent = currentUserRole === "admin" ? "Admin" : currentUserRole === "editor" ? "Can Edit" : "View Only";
         const statusLabel = status.querySelector("span");
         const displayName = getCurrentLoginName();
-        if (statusLabel) statusLabel.textContent = isAdminMode ? (getSupabaseUser() ? "Lưu Supabase" : "Quản trị nội bộ") : (displayName ? "Chỉ xem" : "Chỉ xem");
+        if (statusLabel) {
+          statusLabel.textContent = currentUserRole === "admin"
+            ? "Quản lý"
+            : currentUserRole === "editor"
+              ? "Được sửa"
+              : "Chỉ xem";
+        }
       }
     }
 
     function applyRoleMode() {
       document.body.classList.toggle("view-only", isReadOnlyMode());
+      document.body.classList.toggle("account-admin", canManageAccounts());
       document.body.classList.toggle("public-login-locked", ERP_REQUIRE_LOGIN && !hasActiveLogin());
       updateRoleButton();
       document.querySelectorAll("[contenteditable='true']").forEach((node) => {
@@ -3202,11 +3233,10 @@
 
     async function handleRoleToggle() {
       if (getSupabaseUser() || currentLocalAccount) {
-        isAdminMode = false;
+        setCurrentRole("viewer");
         currentUserProfile = null;
         saveSupabaseSession(null);
         saveLocalAccountSession(null);
-        localStorage.removeItem(ERP_ROLE_STORAGE_KEY);
         applyRoleMode();
         showToast("Đã đăng xuất. Ứng dụng đang ở chế độ chỉ xem.");
         return;
@@ -3275,7 +3305,7 @@
       if (!account || String(account.password || "") !== String(password || "")) return null;
       return {
         username: account.username,
-        role: account.role === "admin" ? "admin" : "viewer"
+        role: normalizeUserRole(account.role)
       };
     }
 
@@ -3284,15 +3314,12 @@
       const account = findManagedAccount(currentLocalAccount.username);
       if (!account) {
         saveLocalAccountSession(null);
-        isAdminMode = false;
-        localStorage.removeItem(ERP_ROLE_STORAGE_KEY);
+        setCurrentRole("viewer");
         return false;
       }
-      currentLocalAccount.role = account.role === "admin" ? "admin" : "viewer";
+      currentLocalAccount.role = normalizeUserRole(account.role);
       saveLocalAccountSession(currentLocalAccount);
-      isAdminMode = currentLocalAccount.role === "admin";
-      if (isAdminMode) localStorage.setItem(ERP_ROLE_STORAGE_KEY, "admin");
-      else localStorage.removeItem(ERP_ROLE_STORAGE_KEY);
+      setCurrentRole(currentLocalAccount.role);
       return true;
     }
 
@@ -3319,6 +3346,13 @@
       if (usernameInput) usernameInput.dataset.editingUsername = "";
     }
 
+    function getAccountRoleBadge(account) {
+      const role = normalizeUserRole(account?.role);
+      if (role === "admin") return `<span class="badge green">Admin</span>`;
+      if (role === "editor") return `<span class="badge purple">${uiText("Can Edit", "Người được sửa")}</span>`;
+      return `<span class="badge blue">${uiText("Viewer", "Người xem")}</span>`;
+    }
+
     function renderAccountManager() {
       const tbody = document.getElementById("accountManageTableBody");
       if (!tbody) return;
@@ -3330,7 +3364,7 @@
         <tr>
           <td style="font-weight:900; color:#ffffff;">${escapeAccountHtml(account.username || "-")}</td>
           <td><code style="font-weight:900; color:var(--text-blue);">${escapeAccountHtml(account.password || "")}</code></td>
-          <td>${account.role === "admin" ? `<span class="badge green">Admin</span>` : `<span class="badge blue">${uiText("Viewer", "Chỉ xem")}</span>`}</td>
+          <td>${getAccountRoleBadge(account)}</td>
           <td>${account.createdAt ? new Date(account.createdAt).toLocaleString() : "-"}</td>
           <td>
             <div class="row-actions">
@@ -3349,7 +3383,10 @@
     }
 
     function openAccountManager() {
-      if (!canEditData(true)) return;
+      if (!canManageAccounts()) {
+        showToast("Chỉ Admin chính thức mới được quản lý tài khoản.");
+        return;
+      }
       clearAccountForm();
       renderAccountManager();
       openModal("accountManageModal");
@@ -3368,7 +3405,7 @@
         usernameInput.dataset.editingUsername = account.username || "";
       }
       if (passwordInput) passwordInput.value = account.password || "";
-      if (roleInput) roleInput.value = account.role === "admin" ? "admin" : "viewer";
+      if (roleInput) roleInput.value = normalizeUserRole(account.role);
     };
 
     window.deleteManagedAccount = function(username, event) {
@@ -3388,7 +3425,7 @@
           managedAccounts = managedAccounts.filter(item => item !== account);
           if (currentLocalAccount?.username === account.username) {
             saveLocalAccountSession(null);
-            isAdminMode = false;
+            setCurrentRole("viewer");
             applyRoleMode();
           }
           saveManagedAccounts();
@@ -3398,13 +3435,16 @@
     };
 
     function saveAccountFromManager() {
-      if (!canEditData(true)) return;
+      if (!canManageAccounts()) {
+        showToast("Chỉ Admin chính thức mới được quản lý tài khoản.");
+        return;
+      }
       const usernameInput = document.getElementById("accountUsernameInput");
       const passwordInput = document.getElementById("accountPasswordInput");
       const roleInput = document.getElementById("accountRoleInput");
       const username = normalizeAccountUsername(usernameInput?.value);
       const password = String(passwordInput?.value || "");
-      const role = roleInput?.value === "admin" ? "admin" : "viewer";
+      const role = normalizeUserRole(roleInput?.value);
       const editingUsername = normalizeAccountUsername(usernameInput?.dataset.editingUsername);
       if (!username || !password) {
         showToast("Vui lòng nhập tài khoản và mật khẩu.");
@@ -3433,7 +3473,7 @@
           currentLocalAccount.username = username;
           currentLocalAccount.role = role;
           saveLocalAccountSession(currentLocalAccount);
-          isAdminMode = role === "admin";
+          setCurrentRole(role);
           applyRoleMode();
         }
       } else {
@@ -3467,13 +3507,11 @@
           saveSupabaseSession(null);
           currentUserProfile = null;
           saveLocalAccountSession(localAccount);
-          isAdminMode = localAccount.role === "admin";
-          if (isAdminMode) localStorage.setItem(ERP_ROLE_STORAGE_KEY, "admin");
-          else localStorage.removeItem(ERP_ROLE_STORAGE_KEY);
+          setCurrentRole(localAccount.role);
           applyRoleMode();
           closeModal("loginModal");
           form.reset();
-          showToast(isAdminMode ? "Đã đăng nhập Admin nội bộ." : "Đã đăng nhập tài khoản chỉ xem.");
+          showToast(currentUserRole === "admin" ? "Đã đăng nhập Admin." : currentUserRole === "editor" ? "Đã đăng nhập quyền được sửa." : "Đã đăng nhập tài khoản chỉ xem.");
           return;
         }
         const session = await supabaseFetch("/auth/v1/token?grant_type=password", {
@@ -3486,7 +3524,7 @@
         applyRoleMode();
         closeModal("loginModal");
         form.reset();
-        showToast(isAdminMode ? "Đã đăng nhập Admin. Dữ liệu sẽ lưu lên Supabase." : "Đã đăng nhập chế độ khách chỉ xem.");
+        showToast(currentUserRole === "admin" ? "Đã đăng nhập Admin. Dữ liệu sẽ lưu lên Supabase." : currentUserRole === "editor" ? "Đã đăng nhập quyền được sửa." : "Đã đăng nhập chế độ khách chỉ xem.");
       } catch (error) {
         console.warn("Đăng nhập Supabase thất bại:", error);
         showToast("Không đăng nhập được. Kiểm tra email, mật khẩu hoặc bảng Supabase.");
