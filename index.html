@@ -3334,8 +3334,8 @@
           <td>${account.createdAt ? new Date(account.createdAt).toLocaleString() : "-"}</td>
           <td>
             <div class="row-actions">
-              <button class="mini-action primary" type="button" onclick="editManagedAccount('${escapeAccountJs(account.username)}', event)">Sửa</button>
-              <button class="mini-action danger" type="button" onclick="deleteManagedAccount('${escapeAccountJs(account.username)}', event)">Xóa</button>
+              <button class="mini-action primary" type="button" data-account-action="edit" data-account-username="${escapeAccountHtml(account.username)}">Sửa</button>
+              <button class="mini-action danger" type="button" data-account-action="delete" data-account-username="${escapeAccountHtml(account.username)}">Xóa</button>
             </div>
           </td>
         </tr>
@@ -9214,6 +9214,20 @@
     document.getElementById("accountManageBtn")?.addEventListener("click", openAccountManager);
     document.getElementById("accountSaveBtn")?.addEventListener("click", saveAccountFromManager);
     document.getElementById("accountClearFormBtn")?.addEventListener("click", clearAccountForm);
+    document.getElementById("accountManageTableBody")?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-account-action]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const username = button.dataset.accountUsername || "";
+      if (button.dataset.accountAction === "edit") {
+        window.editManagedAccount(username, event);
+        return;
+      }
+      if (button.dataset.accountAction === "delete") {
+        window.deleteManagedAccount(username, event);
+      }
+    });
     document.querySelectorAll("[data-language]").forEach((button) => {
       button.addEventListener("click", () => setUiLanguage(button.dataset.language));
     });
