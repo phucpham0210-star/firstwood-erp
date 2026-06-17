@@ -226,6 +226,10 @@
       display: none !important;
     }
 
+    body:not(.account-admin) [data-admin-nav] {
+      display: none !important;
+    }
+
     body.view-only #layoutEditBtn,
     body.view-only #manualEntryBtn,
     body.view-only #uploadExcelBtn,
@@ -1716,6 +1720,10 @@
         <button class="nav-item">
           <strong>Order</strong>
           <span>Đơn hàng</span>
+        </button>
+        <button class="nav-item" data-admin-nav="report">
+          <strong>Báo cáo</strong>
+          <span>Report</span>
         </button>
       </nav>
 
@@ -3715,7 +3723,8 @@
         document.getElementById("sheet-bom"),
         document.getElementById("sheet-import"),
         document.getElementById("sheet-warehouse"),
-        document.getElementById("sheet-order")
+        document.getElementById("sheet-order"),
+        document.getElementById("sheet-report")
       ].filter(Boolean);
     }
 
