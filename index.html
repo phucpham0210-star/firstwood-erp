@@ -3047,6 +3047,10 @@
           <label>Danh sách lô hàng<span>Invoice selection</span></label>
           <div class="bom-copy-list" id="sheet3ExportShipmentList"></div>
         </div>
+        <label class="check-row" style="width:fit-content;">
+          <input id="sheet3ExportIncludeStockSummary" type="checkbox" checked>
+          <span>Thêm sheet tổng tồn kho sau nhận</span>
+        </label>
       </div>
       <div class="modal-actions">
         <button class="action-btn" id="sheet3ExportSelectAllBtn" type="button">Chọn tất cả<span>Select all</span></button>
@@ -9767,10 +9771,105 @@
 
     function openSheet3ExportModal() {
       renderSheet3ExportShipmentList();
+      const includeSummary = document.getElementById("sheet3ExportIncludeStockSummary");
+      if (includeSummary) includeSummary.checked = true;
       openModal("sheet3ExportModal");
     }
 
-    async function exportSheet3ImportWorkbook(selectedIndexes = importShipments.map((_, index) => index)) {
+    function shouldIncludeSheet3StockSummary() {
+      return Boolean(document.getElementById("sheet3ExportIncludeStockSummary")?.checked);
+    }
+
+    function getSheet3StockSummaryRows(selectedShipments, hardwareLookup) {
+      const groups = new Map();
+      selectedShipments.forEach(({ shipment }) => {
+        (shipment.items || []).forEach((rawItem) => {
+          const item = resolveImportItemFromSheet1(rawItem, hardwareLookup);
+          const key = [
+            String(item.pp || "").trim().toLowerCase(),
+            String(item.fw || "").trim().toLowerCase(),
+            String(item.name || "").trim().toLowerCase()
+          ].join("|");
+          if (!key.replace(/\|/g, "")) return;
+          if (!groups.has(key)) {
+            groups.set(key, {
+              name: item.name || "",
+              fw: item.fw || "",
+              pp: item.pp || "",
+              spec: item.spec || "",
+              material: item.material || "",
+              uom: normalizeDownstreamUom(item.uom || ""),
+              supplier: item.supplier || shipment.supplier || "",
+              docQty: 0,
+              receivedQty: 0,
+              goodQty: 0,
+              defectQty: 0,
+              invoices: new Set()
+            });
+          }
+          const group = groups.get(key);
+          group.docQty += Number(item.docQty) || 0;
+          group.receivedQty += getImportReceivedQtyForWarehouse(item);
+          group.goodQty += getImportGoodQtyForWarehouse(item);
+          group.defectQty += getImportDefectQtyForWarehouse(item);
+          if (shipment.invoice) group.invoices.add(shipment.invoice);
+          if (!group.supplier && (item.supplier || shipment.supplier)) group.supplier = item.supplier || shipment.supplier;
+        });
+      });
+      return Array.from(groups.values())
+        .sort((a, b) => String(a.pp || a.fw || a.name).localeCompare(String(b.pp || b.fw || b.name), "vi", { sensitivity: "base" }))
+        .map((group) => [
+          group.name,
+          group.fw,
+          group.pp,
+          group.spec,
+          group.material,
+          group.uom,
+          group.supplier,
+          group.docQty,
+          group.receivedQty,
+          group.goodQty,
+          group.defectQty,
+          Array.from(group.invoices).join(", ")
+        ]);
+    }
+
+    function appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup) {
+      const headers = [
+        "Tên hàng / Item name",
+        "Mã phần cứng FW / FW hardware code",
+        "Mã phần cứng PP / PP hardware code",
+        "Quy cách / Specification",
+        "Vật liệu / Material",
+        "Đơn vị tồn / Stock UOM",
+        "Nhà cung cấp / Supplier",
+        "Tổng SL chứng từ / Total doc qty",
+        "Tổng SL thực nhận / Total received qty",
+        "SL tốt nhập kho / Good stock qty",
+        "SL lỗi / Defective qty",
+        "Invoice liên quan / Related invoices"
+      ];
+      const stockRows = getSheet3StockSummaryRows(selectedShipments, hardwareLookup);
+      const rows = [
+        ["TỔNG TỒN KHO SAU NHẬN / STOCK AFTER RECEIVING"],
+        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        [`Số lô đã chọn / Selected shipments: ${selectedShipments.length}`],
+        [],
+        headers,
+        ...stockRows
+      ];
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      worksheet["!cols"] = [
+        { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 24 },
+        { wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 18 },
+        { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 42 }
+      ];
+      worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }];
+      worksheet["!autofilter"] = { ref: `A5:L${rows.length}` };
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Tong ton sau nhan");
+    }
+
+    async function exportSheet3ImportWorkbook(selectedIndexes = importShipments.map((_, index) => index), options = {}) {
       if (typeof XLSX === "undefined") {
         showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
         return;
@@ -9858,6 +9957,10 @@
         });
       });
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Danh sach lo hang");
+
+      if (options.includeStockSummary) {
+        appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup);
+      }
 
       selectedShipments.forEach(({ shipment, index }) => {
         const aggregates = calculateShipmentAggregates(shipment);
@@ -10286,7 +10389,7 @@
     });
     document.getElementById("sheet3ExportRunBtn")?.addEventListener("click", () => {
       const selectedIndexes = getSelectedSheet3ExportIndexes();
-      exportSheet3ImportWorkbook(selectedIndexes);
+      exportSheet3ImportWorkbook(selectedIndexes, { includeStockSummary: shouldIncludeSheet3StockSummary() });
       if (selectedIndexes.length) closeModal("sheet3ExportModal");
     });
     function normalizeImportHeader(value) {
