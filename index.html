@@ -9919,9 +9919,7 @@
             });
             worksheet[imageAddress] = {
               t: "s",
-              f: `IMAGE("${imageUrl.replace(/"/g, '""')}","${String(item.pp || "Preview").replace(/"/g, '""')}",1)`,
-              v: imageUrl,
-              l: { Target: imageUrl, Tooltip: "Mở ảnh preview" }
+              v: ""
             };
           }
           const recQtyAddress = XLSX.utils.encode_cell({ r: itemOffset + 12, c: 9 });
@@ -9941,11 +9939,11 @@
         const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, `firstwood-sheet3-import-report-${dateStamp}.xlsx`, sheetImageAnchors);
         showToast(hasEmbeddedImages
           ? "Đã xuất Excel Sheet 3 kèm hình ảnh."
-          : "Đã xuất Excel Sheet 3. Trình duyệt không hỗ trợ nhúng ảnh, file dùng công thức IMAGE dự phòng.");
+          : "Đã xuất Excel Sheet 3. Trình duyệt chưa nhúng được ảnh, file sẽ không dùng link ảnh ngoài.");
       } catch (error) {
         console.warn("Không nhúng được ảnh vào Excel Sheet 3:", error);
         writeWorkbookXlsx(workbook, `firstwood-sheet3-import-report-${dateStamp}.xlsx`);
-        showToast("Đã xuất Excel Sheet 3. Nếu ảnh chưa hiện, hãy mở bằng Excel 365 để dùng công thức IMAGE.");
+        showToast("Đã xuất Excel Sheet 3 nhưng chưa nhúng được ảnh. File không dùng link ảnh ngoài.");
       }
     }
 
