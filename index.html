@@ -3247,7 +3247,7 @@
     function openLoginModal() {
       const emailInput = document.getElementById("loginEmail");
       const passwordInput = document.getElementById("loginPassword");
-      if (emailInput && !emailInput.value) emailInput.value = "phucpham0210@gmail.com";
+      if (emailInput) emailInput.value = "";
       if (passwordInput) {
         passwordInput.value = "";
         passwordInput.type = "password";
