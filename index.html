@@ -195,6 +195,33 @@
       color: var(--green);
     }
 
+    .language-switch {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(16, 24, 38, 0.92);
+    }
+
+    .language-btn {
+      min-width: 58px;
+      height: 30px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-blue);
+      font-size: 11px;
+      font-weight: 900;
+      padding: 0 8px;
+    }
+
+    .language-btn.active {
+      background: var(--blue);
+      color: #ffffff;
+    }
+
     body.view-only #layoutEditBtn,
     body.view-only #manualEntryBtn,
     body.view-only #uploadExcelBtn,
@@ -1693,6 +1720,10 @@
       </nav>
 
       <div class="nav-actions">
+        <div class="language-switch" aria-label="Language">
+          <button class="language-btn" type="button" data-language="en">EN</button>
+          <button class="language-btn" type="button" data-language="vi">VI</button>
+        </div>
         <button class="action-btn" id="layoutEditBtn">Layout Edit<span>Chỉnh bố cục</span></button>
         <button class="action-btn" id="manualEntryBtn">+ Manual Entry<span>Nhập thủ công</span></button>
         <button class="action-btn primary" id="uploadExcelBtn">Upload Excel<span>Tải lên Excel</span></button>
@@ -2811,9 +2842,11 @@
     const ERP_SUPABASE_KEY = "sb_publishable_YS8TBccz0P--d-g2FbzHXw_OgPnTNm-";
     const ERP_SUPABASE_SESSION_KEY = "firstwood_erp_supabase_session_v1";
     const ERP_LOCAL_ACCOUNT_SESSION_KEY = "firstwood_erp_local_account_session_v1";
+    const ERP_LANGUAGE_STORAGE_KEY = "firstwood_erp_language_v1";
     const ERP_SUPABASE_STATE_ID = "main";
     const ERP_SUPABASE_SYNC_INTERVAL = 10000;
     const ERP_REQUIRE_LOGIN = Boolean(window.FIRSTWOOD_REQUIRE_LOGIN);
+    let currentUiLanguage = localStorage.getItem(ERP_LANGUAGE_STORAGE_KEY) === "en" ? "en" : "vi";
     let currentUserProfile = null;
     let supabaseSession = loadSupabaseSession();
     let currentLocalAccount = loadLocalAccountSession();
@@ -2823,6 +2856,169 @@
     let supabaseSaveTimer = null;
     let pendingSupabasePayload = null;
     let isApplyingRemoteData = false;
+
+    const UI_EXACT_TRANSLATIONS = {
+      "Sửa": { en: "Edit", vi: "Sửa" },
+      "Edit": { en: "Edit", vi: "Sửa" },
+      "Xóa": { en: "Delete", vi: "Xóa" },
+      "Delete": { en: "Delete", vi: "Xóa" },
+      "Lưu": { en: "Save", vi: "Lưu" },
+      "Save": { en: "Save", vi: "Lưu" },
+      "Hủy": { en: "Cancel", vi: "Hủy" },
+      "Cancel": { en: "Cancel", vi: "Hủy" },
+      "Copy": { en: "Copy", vi: "Copy" },
+      "Close": { en: "Close", vi: "Đóng" },
+      "Đóng": { en: "Close", vi: "Đóng" },
+      "Chọn": { en: "Select", vi: "Chọn" },
+      "Select": { en: "Select", vi: "Chọn" },
+      "Chọn tất cả": { en: "Select all", vi: "Chọn tất cả" },
+      "Select all": { en: "Select all", vi: "Chọn tất cả" },
+      "Xác nhận": { en: "Confirm", vi: "Xác nhận" },
+      "Confirm": { en: "Confirm", vi: "Xác nhận" },
+      "Lọc": { en: "Filter", vi: "Lọc" },
+      "Filter": { en: "Filter", vi: "Lọc" },
+      "Xóa Lọc": { en: "Reset", vi: "Xóa Lọc" },
+      "Reset": { en: "Reset", vi: "Xóa Lọc" },
+      "Thu": { en: "Collapse", vi: "Thu" },
+      "Collapse": { en: "Collapse", vi: "Thu" },
+      "Tạo": { en: "Create", vi: "Tạo" },
+      "Create": { en: "Create", vi: "Tạo" },
+      "Ẩn": { en: "Hide", vi: "Ẩn" },
+      "Hiện": { en: "Show", vi: "Hiện" },
+      "Show": { en: "Show", vi: "Hiện" },
+      "Hide": { en: "Hide", vi: "Ẩn" },
+      "Login": { en: "Login", vi: "Đăng nhập" },
+      "Logout": { en: "Logout", vi: "Đăng xuất" },
+      "Admin": { en: "Admin", vi: "Quản trị" },
+      "View Only": { en: "View Only", vi: "Chỉ xem" },
+      "+ Manual Entry": { en: "+ Manual Entry", vi: "+ Nhập thủ công" }
+    };
+
+    const VI_HINT_WORDS = [
+      "ảnh", "báo", "bố", "cao", "chỉnh", "chờ", "chuẩn", "chứng", "cứng", "dài", "đã", "định", "đơn",
+      "đóng", "giao", "ghi", "hàng", "hóa", "hủy", "khẩu", "kho", "kích", "lọc", "lượng", "mã", "mẫu",
+      "mức", "ngày", "người", "nguyên", "nhà", "nhập", "phẩm", "phần", "quản", "rộng", "sản", "số",
+      "tài", "tải", "tên", "thái", "thao", "theo", "thước", "trạng", "vật", "xuất", "xử"
+    ];
+
+    function normalizeUiText(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function textLooksVietnamese(value) {
+      const text = normalizeUiText(value).toLowerCase();
+      if (!text) return false;
+      if (/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(text)) return true;
+      return VI_HINT_WORDS.some((word) => new RegExp(`(^|\\s)${word}(\\s|$)`, "i").test(text));
+    }
+
+    function getOwnTextNode(element) {
+      return Array.from(element.childNodes || []).find((node) => node.nodeType === Node.TEXT_NODE && normalizeUiText(node.textContent)) || null;
+    }
+
+    function setOwnText(element, value) {
+      const node = getOwnTextNode(element);
+      if (node) {
+        if (normalizeUiText(node.textContent) === value) return;
+        const leading = /^\s/.test(node.textContent) ? " " : "";
+        const trailing = /\s$/.test(node.textContent) ? " " : "";
+        node.textContent = `${leading}${value}${trailing}`;
+        return;
+      }
+      element.insertBefore(document.createTextNode(value), element.firstChild);
+    }
+
+    function getDirectSpan(element) {
+      return Array.from(element.children || []).find((child) => child.tagName === "SPAN") || null;
+    }
+
+    function setLanguagePair(element, primaryText, secondaryText) {
+      const primary = normalizeUiText(primaryText);
+      const secondary = normalizeUiText(secondaryText);
+      if (!primary || !secondary) return;
+      if (element.dataset.i18nEn && element.dataset.i18nVi) {
+        const storedValues = [element.dataset.i18nEn, element.dataset.i18nVi].map(normalizeUiText);
+        if (storedValues.includes(primary) && storedValues.includes(secondary)) return;
+      }
+      const primaryVi = textLooksVietnamese(primary);
+      const secondaryVi = textLooksVietnamese(secondary);
+      if (primaryVi && !secondaryVi) {
+        element.dataset.i18nVi = primary;
+        element.dataset.i18nEn = secondary;
+      } else if (!primaryVi && secondaryVi) {
+        element.dataset.i18nEn = primary;
+        element.dataset.i18nVi = secondary;
+      } else {
+        element.dataset.i18nEn = primary;
+        element.dataset.i18nVi = secondary;
+      }
+    }
+
+    function localizePairElement(element) {
+      if (!element || element.closest(".brand, .language-switch")) return;
+      if (element.classList?.contains("nav-item")) {
+        const strong = element.querySelector(":scope > strong");
+        const span = element.querySelector(":scope > span");
+        if (!strong || !span) return;
+        setLanguagePair(element, strong.textContent, span.textContent);
+        const nextText = element.dataset[currentUiLanguage === "en" ? "i18nEn" : "i18nVi"] || strong.textContent;
+        if (normalizeUiText(strong.textContent) !== nextText) strong.textContent = nextText;
+        span.style.display = "none";
+        return;
+      }
+      const span = getDirectSpan(element);
+      const ownText = getOwnTextNode(element);
+      if (!span || !ownText) return;
+      setLanguagePair(element, ownText.textContent, span.textContent);
+      setOwnText(element, element.dataset[currentUiLanguage === "en" ? "i18nEn" : "i18nVi"] || normalizeUiText(ownText.textContent));
+      span.style.display = "none";
+    }
+
+    function localizeExactElement(element) {
+      if (!element || element.closest(".language-switch")) return;
+      const span = getDirectSpan(element);
+      if (span) return;
+      const text = normalizeUiText(element.textContent);
+      const pair = UI_EXACT_TRANSLATIONS[text] || UI_EXACT_TRANSLATIONS[element.dataset.i18nKey || ""];
+      if (!pair) return;
+      element.dataset.i18nKey = element.dataset.i18nKey || text;
+      const nextText = pair[currentUiLanguage] || text;
+      if (normalizeUiText(element.textContent) !== nextText) element.textContent = nextText;
+    }
+
+    let isApplyingUiLanguage = false;
+
+    function applyUiLanguage(root = document) {
+      isApplyingUiLanguage = true;
+      document.documentElement.lang = currentUiLanguage;
+      document.querySelectorAll("[data-language]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.language === currentUiLanguage);
+      });
+
+      root.querySelectorAll?.(".nav-item, .action-btn, .tab, th, label, .modal-title, .status-pill, .count-line, .filter-launch, .mini-action, .mini-label").forEach((element) => {
+        localizePairElement(element);
+        if (element.matches("button, .mini-action")) localizeExactElement(element);
+      });
+      isApplyingUiLanguage = false;
+    }
+
+    let languageApplyTimer = null;
+    function scheduleApplyUiLanguage(delay = 0) {
+      window.clearTimeout(languageApplyTimer);
+      languageApplyTimer = window.setTimeout(() => applyUiLanguage(), delay);
+    }
+
+    function setUiLanguage(language) {
+      currentUiLanguage = language === "en" ? "en" : "vi";
+      localStorage.setItem(ERP_LANGUAGE_STORAGE_KEY, currentUiLanguage);
+      applyUiLanguage();
+      showToast(currentUiLanguage === "en" ? "Interface switched to English." : "Đã chuyển giao diện sang tiếng Việt.");
+    }
+
+    const uiLanguageObserver = new MutationObserver(() => {
+      if (isApplyingUiLanguage) return;
+      scheduleApplyUiLanguage(80);
+    });
 
     function loadSupabaseSession() {
       try {
@@ -8940,6 +9136,9 @@
     document.getElementById("accountManageBtn")?.addEventListener("click", openAccountManager);
     document.getElementById("accountSaveBtn")?.addEventListener("click", saveAccountFromManager);
     document.getElementById("accountClearFormBtn")?.addEventListener("click", clearAccountForm);
+    document.querySelectorAll("[data-language]").forEach((button) => {
+      button.addEventListener("click", () => setUiLanguage(button.dataset.language));
+    });
     document.getElementById("loginForm")?.addEventListener("submit", submitLoginForm);
     document.getElementById("toggleLoginPasswordBtn")?.addEventListener("click", () => {
       const passwordInput = document.getElementById("loginPassword");
@@ -11932,6 +12131,12 @@
       if (event.target.closest("table, .modal, .shipment-card, .order-card")) scheduleSaveAppData();
     });
 
+    uiLanguageObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
     runStartupStep("loadAppData", loadAppData);
     runStartupStep("initSupabaseSync", initSupabaseSync);
     runStartupStep("ensureRowActionButtons", ensureRowActionButtons);
@@ -11961,6 +12166,7 @@
     
     runStartupStep("showSheet", () => showSheet(0, false));
     runStartupStep("applyRoleMode", applyRoleMode);
+    runStartupStep("applyUiLanguage", applyUiLanguage);
   </script>
 </body>
 </html>
