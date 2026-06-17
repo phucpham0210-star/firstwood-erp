@@ -2578,6 +2578,25 @@
             </table>
           </div>
         </div>
+        <div class="mini-label" style="margin-top:16px;">Lịch sử thao tác<span>Chọn một dòng để khôi phục dữ liệu trước khi sửa</span></div>
+        <div class="table-shell compact" style="margin-top:8px;">
+          <div class="table-wrap" style="max-height: 300px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thời gian<span>Time</span></th>
+                  <th>Người sửa<span>User</span></th>
+                  <th>Khu vực<span>Area</span></th>
+                  <th>Ghi chú<span>Summary</span></th>
+                  <th>Thao tác<span>Action</span></th>
+                </tr>
+              </thead>
+              <tbody id="auditHistoryTableBody">
+                <tr><td colspan="5" style="text-align:center; color:var(--muted); font-weight:800; padding:18px;">Chưa có lịch sử thao tác.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <div class="modal-actions">
         <button class="action-btn" id="accountClearFormBtn" type="button">Xóa form<span>Clear</span></button>
@@ -2863,6 +2882,7 @@
     let supabaseSession = loadSupabaseSession();
     let currentLocalAccount = loadLocalAccountSession();
     let managedAccounts = [];
+    let auditHistory = [];
     let currentUserRole = "viewer";
     let isAdminMode = false;
     let lastSupabaseUpdatedAt = "";
@@ -3380,10 +3400,136 @@
       `).join("");
     }
 
+    const AUDIT_HISTORY_LIMIT = 30;
+    const AUDIT_PAYLOAD_KEYS = [
+      "productRows",
+      "hardwareRows",
+      "bomRows",
+      "productionHardwareSettings",
+      "importShipments",
+      "salesOrders",
+      "productionAllocations",
+      "managedAccounts"
+    ];
+    const AUDIT_AREA_LABELS = {
+      productRows: "Sheet 1 - Mã sản phẩm",
+      hardwareRows: "Sheet 1 - Mã phần cứng",
+      bomRows: "Sheet 2 - BOM",
+      productionHardwareSettings: "Mã phần cứng sản xuất",
+      importShipments: "Sheet 3 - Import",
+      salesOrders: "Sheet 5 - Đơn hàng",
+      productionAllocations: "Sheet 5 - Lệnh sản xuất",
+      managedAccounts: "Tài khoản"
+    };
+
+    function clonePlain(value) {
+      return JSON.parse(JSON.stringify(value ?? null));
+    }
+
+    function stripAuditPayload(payload) {
+      if (!payload || typeof payload !== "object") return null;
+      const clean = { ...payload };
+      delete clean.auditHistory;
+      return clonePlain(clean);
+    }
+
+    function readStoredAppDataPayload() {
+      try {
+        const raw = localStorage.getItem(ERP_STORAGE_KEY);
+        return raw ? unwrapAppDataPayload(JSON.parse(raw)) : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function getPayloadDiffKeys(beforePayload, afterPayload) {
+      return AUDIT_PAYLOAD_KEYS.filter((key) => JSON.stringify(beforePayload?.[key] ?? null) !== JSON.stringify(afterPayload?.[key] ?? null));
+    }
+
+    function getAuditActorName() {
+      return getCurrentLoginName() || "Unknown";
+    }
+
+    function createAuditEntry(beforePayload, afterPayload) {
+      const beforeClean = stripAuditPayload(beforePayload);
+      const afterClean = stripAuditPayload(afterPayload);
+      if (!beforeClean || !afterClean) return null;
+      const changedKeys = getPayloadDiffKeys(beforeClean, afterClean);
+      if (!changedKeys.length) return null;
+      return {
+        id: `audit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        at: new Date().toISOString(),
+        user: getAuditActorName(),
+        role: currentUserRole,
+        areas: changedKeys.map((key) => AUDIT_AREA_LABELS[key] || key),
+        summary: changedKeys.length === 1 ? `Thay đổi ${AUDIT_AREA_LABELS[changedKeys[0]] || changedKeys[0]}` : `Thay đổi ${changedKeys.length} khu vực`,
+        beforePayload: beforeClean,
+        afterPayload: afterClean
+      };
+    }
+
+    function renderAuditHistory() {
+      const tbody = document.getElementById("auditHistoryTableBody");
+      if (!tbody) return;
+      if (!auditHistory.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); font-weight:800; padding:18px;">${uiText("No activity history yet.", "Chưa có lịch sử thao tác.")}</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = auditHistory.map((entry) => `
+        <tr>
+          <td>${new Date(entry.at).toLocaleString()}</td>
+          <td style="font-weight:900; color:#ffffff;">${escapeAccountHtml(entry.user || "-")}</td>
+          <td>${escapeAccountHtml((entry.areas || []).join(", "))}</td>
+          <td>${escapeAccountHtml(entry.summary || "-")}</td>
+          <td><button class="mini-action primary" type="button" data-audit-restore="${escapeAccountHtml(entry.id)}">Khôi phục</button></td>
+        </tr>
+      `).join("");
+    }
+
+    function restoreAuditEntry(entryId) {
+      if (!canManageAccounts()) {
+        showToast("Chỉ Admin chính thức mới được khôi phục lịch sử.");
+        return;
+      }
+      const entry = auditHistory.find((item) => item.id === entryId);
+      if (!entry?.beforePayload) return;
+      requestConfirmation({
+        title: "Xác nhận khôi phục",
+        subtitle: "Trả dữ liệu về trước thao tác đã chọn",
+        message: `Khôi phục dữ liệu về trước thao tác của ${entry.user || "-"} lúc ${new Date(entry.at).toLocaleString()}?`,
+        confirmText: "Khôi phục",
+        onConfirm: () => {
+          const preservedHistory = auditHistory.slice();
+          const restorePayload = { ...clonePlain(entry.beforePayload), auditHistory: preservedHistory };
+          applyAppDataPayload(restorePayload);
+          auditHistory = [
+            {
+              id: `audit-${Date.now()}-restore`,
+              at: new Date().toISOString(),
+              user: getAuditActorName(),
+              role: currentUserRole,
+              areas: ["Khôi phục dữ liệu"],
+              summary: `Khôi phục về trước thao tác của ${entry.user || "-"}`,
+              beforePayload: stripAuditPayload(buildAppDataPayload()),
+              afterPayload: stripAuditPayload(restorePayload)
+            },
+            ...preservedHistory
+          ].slice(0, AUDIT_HISTORY_LIMIT);
+          cachedAppDataPayload = buildAppDataPayload();
+          writeCachedAppDataPayload(cachedAppDataPayload, { skipAudit: true });
+          refreshAllViewsAfterDataLoad();
+          renderAccountManager();
+          renderAuditHistory();
+          showToast("Đã khôi phục dữ liệu theo lịch sử.");
+        }
+      });
+    }
+
     function saveManagedAccounts() {
       cachedAppDataPayload = buildAppDataPayload();
       writeCachedAppDataPayload(cachedAppDataPayload);
       renderAccountManager();
+      renderAuditHistory();
     }
 
     function openAccountManager() {
@@ -3393,6 +3539,7 @@
       }
       clearAccountForm();
       renderAccountManager();
+      renderAuditHistory();
       openModal("accountManageModal");
     }
 
@@ -9292,6 +9439,13 @@
         window.deleteManagedAccount(username, event);
       }
     });
+    document.getElementById("auditHistoryTableBody")?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-audit-restore]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      restoreAuditEntry(button.dataset.auditRestore);
+    });
     document.querySelectorAll("[data-language]").forEach((button) => {
       button.addEventListener("click", () => setUiLanguage(button.dataset.language));
     });
@@ -11821,6 +11975,7 @@
         salesOrders,
         productionAllocations,
         managedAccounts,
+        auditHistory,
         activeOrderIndex,
         activeWorkOrderNo
       };
@@ -11838,10 +11993,18 @@
       return payload;
     }
 
-    function writeCachedAppDataPayload(payload = getCachedAppDataPayload()) {
+    function writeCachedAppDataPayload(payload = getCachedAppDataPayload(), options = {}) {
       if (isReadOnlyMode()) return;
       if (isRestoringBackup) return;
       clearTimeout(persistTimer);
+      if (!options.skipAudit && !isApplyingRemoteData) {
+        const previousPayload = readStoredAppDataPayload();
+        const entry = createAuditEntry(previousPayload, payload);
+        if (entry) {
+          auditHistory = [entry, ...auditHistory].slice(0, AUDIT_HISTORY_LIMIT);
+          payload.auditHistory = auditHistory;
+        }
+      }
       localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(payload));
       queueSupabaseSave(payload, 100);
       appDataDirty = false;
