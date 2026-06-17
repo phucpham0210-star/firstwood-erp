@@ -4118,6 +4118,16 @@
         .map((item) => `${HARDWARE_PREVIEW_FOLDER}/${encodeURIComponent(item)}`);
     }
 
+    function getHardwarePreviewExcelUrl(ppCode) {
+      const previewPath = getHardwarePreviewCandidates(ppCode)[0];
+      if (!previewPath) return "";
+      try {
+        return new URL(previewPath, window.location.href).href;
+      } catch (error) {
+        return previewPath;
+      }
+    }
+
     function getProductPreviewCandidates(productCode) {
       const rawCode = String(productCode || "").replace(/\s+/g, " ").trim();
       if (!rawCode) return [];
@@ -8988,13 +8998,25 @@
 
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
         worksheet["!cols"] = [
-          { wch: 18 }, { wch: 32 }, { wch: 22 }, { wch: 22 },
+          { wch: 20 }, { wch: 32 }, { wch: 22 }, { wch: 22 },
           { wch: 24 }, { wch: 20 }, { wch: 12 }, { wch: 22 },
           { wch: 14 }, { wch: 14 }, { wch: 32 }, { wch: 18 }
         ];
+        worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex >= 12 ? { hpt: 76 } : {});
         worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: detailHeaders.length - 1 } }];
         worksheet["!autofilter"] = { ref: `A12:L${rows.length}` };
         (shipment.items || []).forEach((rawItem, itemOffset) => {
+          const item = resolveImportItemFromSheet1(rawItem, hardwareLookup);
+          const imageUrl = getHardwarePreviewExcelUrl(item.pp);
+          const imageAddress = XLSX.utils.encode_cell({ r: itemOffset + 12, c: 0 });
+          if (imageUrl) {
+            worksheet[imageAddress] = {
+              t: "s",
+              f: `IMAGE("${imageUrl.replace(/"/g, '""')}","${String(item.pp || "Preview").replace(/"/g, '""')}",1)`,
+              v: imageUrl,
+              l: { Target: imageUrl, Tooltip: "Mở ảnh preview" }
+            };
+          }
           const recQtyAddress = XLSX.utils.encode_cell({ r: itemOffset + 12, c: 9 });
           if (isImportQtyMismatch(rawItem.docQty, rawItem.recQty)) {
             setCellStyle(worksheet, recQtyAddress, {
