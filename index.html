@@ -2496,7 +2496,7 @@
   <div class="modal-backdrop is-hidden" id="loginModal" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle" style="max-width: 460px;">
       <div class="modal-head">
-        <div class="modal-title" id="loginTitle">Supabase Login<span>Đăng nhập tài khoản online</span></div>
+        <div class="modal-title" id="loginTitle">Đăng Nhập ERP<span>Dùng tài khoản admin hoặc tài khoản khách</span></div>
         <button class="action-btn" data-close-modal="loginModal" type="button">Close<span>Đóng</span></button>
       </div>
       <form id="loginForm">
@@ -2504,7 +2504,7 @@
           <div class="form-grid" style="grid-template-columns: 1fr;">
             <div class="field">
               <label>Email<span>Tài khoản</span></label>
-              <input class="control" id="loginEmail" name="email" type="text" autocomplete="username" required placeholder="Email Supabase hoặc tài khoản nội bộ">
+              <input class="control" id="loginEmail" name="email" type="text" autocomplete="username" required placeholder="Nhập tài khoản">
             </div>
             <div class="field">
               <label>Mật khẩu<span>Password</span></label>
@@ -2526,10 +2526,13 @@
   <div class="modal-backdrop is-hidden" id="accountManageModal" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="accountManageTitle" style="max-width: 760px;">
       <div class="modal-head">
-        <div class="modal-title" id="accountManageTitle">Quản Lý Tài Khoản<span>Tạo tài khoản, đặt mật khẩu và phân quyền</span></div>
+        <div class="modal-title" id="accountManageTitle">Quản Lý Tài Khoản<span>Tạo khách, đổi mật khẩu, đổi quyền và đổi nick admin</span></div>
         <button class="action-btn" data-close-modal="accountManageModal" type="button">Close<span>Đóng</span></button>
       </div>
       <div class="modal-body">
+        <div class="stat-note" style="margin-bottom:12px;">
+          Tạo tài khoản tại đây để khách đăng nhập. Quyền Admin được sửa dữ liệu và quản lý tài khoản; quyền Chỉ xem chỉ được xem và xuất Excel.
+        </div>
         <div class="form-grid" style="grid-template-columns: 1.2fr 1fr 0.8fr auto; align-items:end;">
           <div class="field">
             <label>Tài khoản<span>Username</span></label>
@@ -3259,6 +3262,14 @@
       return managedAccounts.find(account => String(account.username || "").trim().toLowerCase() === target) || null;
     }
 
+    function getManagedAdminAccounts(excludeUsername = "") {
+      const exclude = normalizeAccountUsername(excludeUsername).toLowerCase();
+      return managedAccounts.filter((account) => {
+        const username = normalizeAccountUsername(account.username).toLowerCase();
+        return account.role === "admin" && (!exclude || username !== exclude);
+      });
+    }
+
     function authenticateManagedAccount(username, password) {
       const account = findManagedAccount(username);
       if (!account || String(account.password || "") !== String(password || "")) return null;
@@ -3285,6 +3296,19 @@
       return true;
     }
 
+    function ensureManagedAdminAccount() {
+      if (managedAccounts.some((account) => account.role === "admin")) return false;
+      const fallbackName = getSupabaseUser()?.email || "admin";
+      managedAccounts.push({
+        username: fallbackName,
+        password: "admin123",
+        role: "admin",
+        createdAt: new Date().toISOString()
+      });
+      managedAccounts.sort((a, b) => String(a.username || "").localeCompare(String(b.username || ""), "vi", { sensitivity: "base" }));
+      return true;
+    }
+
     function clearAccountForm() {
       const usernameInput = document.getElementById("accountUsernameInput");
       const passwordInput = document.getElementById("accountPasswordInput");
@@ -3299,14 +3323,14 @@
       const tbody = document.getElementById("accountManageTableBody");
       if (!tbody) return;
       if (!managedAccounts.length) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); font-weight:800; padding:18px;">Chưa có tài khoản nội bộ.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); font-weight:800; padding:18px;">${uiText("No internal accounts yet.", "Chưa có tài khoản nội bộ.")}</td></tr>`;
         return;
       }
       tbody.innerHTML = managedAccounts.map(account => `
         <tr>
           <td style="font-weight:900; color:#ffffff;">${escapeAccountHtml(account.username || "-")}</td>
           <td><code style="font-weight:900; color:var(--text-blue);">${escapeAccountHtml(account.password || "")}</code></td>
-          <td>${account.role === "admin" ? `<span class="badge green">Admin</span>` : `<span class="badge blue">Chỉ xem</span>`}</td>
+          <td>${account.role === "admin" ? `<span class="badge green">Admin</span>` : `<span class="badge blue">${uiText("Viewer", "Chỉ xem")}</span>`}</td>
           <td>${account.createdAt ? new Date(account.createdAt).toLocaleString() : "-"}</td>
           <td>
             <div class="row-actions">
@@ -3352,6 +3376,10 @@
       event?.stopPropagation();
       const account = findManagedAccount(username);
       if (!account) return;
+      if (account.role === "admin" && getManagedAdminAccounts(account.username).length === 0) {
+        showToast("Không thể xóa admin cuối cùng. Hãy tạo admin mới trước.");
+        return;
+      }
       requestConfirmation({
         title: "Xác nhận xóa tài khoản",
         message: `Bạn có chắc chắn muốn xóa tài khoản ${account.username}?`,
@@ -3392,10 +3420,22 @@
         return;
       }
       const existing = editingUsername ? findManagedAccount(editingUsername) : null;
+      if (existing && existing.role === "admin" && role !== "admin" && getManagedAdminAccounts(existing.username).length === 0) {
+        showToast("Không thể hạ quyền admin cuối cùng. Hãy tạo admin mới trước.");
+        return;
+      }
       if (existing) {
+        const oldUsername = existing.username;
         existing.username = username;
         existing.password = password;
         existing.role = role;
+        if (currentLocalAccount?.username === oldUsername) {
+          currentLocalAccount.username = username;
+          currentLocalAccount.role = role;
+          saveLocalAccountSession(currentLocalAccount);
+          isAdminMode = role === "admin";
+          applyRoleMode();
+        }
       } else {
         managedAccounts.push({
           username,
@@ -11962,6 +12002,11 @@
         if (!forceApply && lastSupabaseUpdatedAt && row.updated_at && row.updated_at <= lastSupabaseUpdatedAt) return true;
         lastSupabaseUpdatedAt = row.updated_at || "";
         applyAppDataPayload(row.data);
+        if (isAdminMode && ensureManagedAdminAccount()) {
+          cachedAppDataPayload = buildAppDataPayload();
+          queueSupabaseSave(cachedAppDataPayload, 100);
+          showToast("Đã tạo admin nội bộ mặc định. Vào Accounts để đổi nick/mật khẩu.");
+        }
         refreshAllViewsAfterDataLoad();
         if (showMessage) showToast("Đã tải dữ liệu từ Supabase.");
         return true;
