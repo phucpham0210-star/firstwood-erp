@@ -3113,6 +3113,7 @@
     let supabaseSession = loadSupabaseSession();
     let currentLocalAccount = loadLocalAccountSession();
     let managedAccounts = [];
+    let supabaseProfiles = [];
     let auditHistory = [];
     let currentUserRole = "viewer";
     let loginFormMode = "login";
@@ -3598,9 +3599,17 @@
       return String(value || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     }
 
+    function normalizeAccountKey(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
     function findManagedAccount(username) {
-      const target = normalizeAccountUsername(username).toLowerCase();
-      return managedAccounts.find(account => String(account.username || "").trim().toLowerCase() === target) || null;
+      const target = normalizeAccountKey(username);
+      return managedAccounts.find(account => normalizeAccountKey(account.username) === target) || null;
+    }
+
+    function findSupabaseProfile(userId) {
+      return supabaseProfiles.find(profile => String(profile.user_id || "") === String(userId || "")) || null;
     }
 
     function getManagedAdminAccounts(excludeUsername = "") {
@@ -3651,10 +3660,25 @@
       const usernameInput = document.getElementById("accountUsernameInput");
       const passwordInput = document.getElementById("accountPasswordInput");
       const roleInput = document.getElementById("accountRoleInput");
+      const saveButton = document.getElementById("accountSaveBtn");
       if (usernameInput) usernameInput.value = "";
-      if (passwordInput) passwordInput.value = "";
+      if (usernameInput) {
+        usernameInput.disabled = false;
+        usernameInput.dataset.editingUsername = "";
+        usernameInput.dataset.editingSource = "";
+        usernameInput.dataset.editingUserId = "";
+      }
+      if (passwordInput) {
+        passwordInput.value = "";
+        passwordInput.disabled = false;
+        passwordInput.placeholder = "Nhập mật khẩu";
+      }
       if (roleInput) roleInput.value = "viewer";
-      if (usernameInput) usernameInput.dataset.editingUsername = "";
+      if (saveButton) {
+        saveButton.firstChild.textContent = "Lưu";
+        const label = saveButton.querySelector("span");
+        if (label) label.textContent = "Save";
+      }
     }
 
     function getAccountRoleBadge(account) {
@@ -3664,23 +3688,62 @@
       return `<span class="badge blue">${uiText("Viewer", "Người xem")}</span>`;
     }
 
+    async function loadSupabaseProfilesForManager() {
+      if (!getSupabaseUser()) {
+        supabaseProfiles = [];
+        return [];
+      }
+      try {
+        const rows = await supabaseFetch("/rest/v1/erp_profiles?select=user_id,display_name,email,role,created_at&order=created_at.desc");
+        supabaseProfiles = Array.isArray(rows) ? rows : [];
+      } catch (error) {
+        console.warn("Không tải được danh sách Supabase profiles:", error);
+        supabaseProfiles = [];
+        showToast("Chưa tải được danh sách tài khoản Supabase. Kiểm tra lại SQL quyền đọc profile.");
+      }
+      return supabaseProfiles;
+    }
+
     function renderAccountManager() {
       const tbody = document.getElementById("accountManageTableBody");
       if (!tbody) return;
-      if (!managedAccounts.length) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); font-weight:800; padding:18px;">${uiText("No internal accounts yet.", "Chưa có tài khoản nội bộ.")}</td></tr>`;
+      const supabaseRows = supabaseProfiles.map(profile => ({
+        source: "supabase",
+        key: profile.user_id,
+        username: profile.email || profile.display_name || profile.user_id,
+        password: "",
+        role: normalizeUserRole(profile.role),
+        createdAt: profile.created_at,
+        displayName: profile.display_name || "",
+        userId: profile.user_id
+      }));
+      const localRows = managedAccounts.map(account => ({
+        source: "local",
+        key: account.username,
+        username: account.username,
+        password: account.password || "",
+        role: normalizeUserRole(account.role),
+        createdAt: account.createdAt,
+        displayName: account.username || ""
+      }));
+      const rows = [...supabaseRows, ...localRows].sort((a, b) => String(a.username || "").localeCompare(String(b.username || ""), "vi", { sensitivity: "base" }));
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); font-weight:800; padding:18px;">${uiText("No accounts yet.", "Chưa có tài khoản.")}</td></tr>`;
         return;
       }
-      tbody.innerHTML = managedAccounts.map(account => `
+      tbody.innerHTML = rows.map(account => `
         <tr>
-          <td style="font-weight:900; color:#ffffff;">${escapeAccountHtml(account.username || "-")}</td>
-          <td><code style="font-weight:900; color:var(--text-blue);">${escapeAccountHtml(account.password || "")}</code></td>
+          <td style="font-weight:900; color:#ffffff;">
+            ${escapeAccountHtml(account.username || "-")}
+            <span style="display:block; margin-top:4px; color:var(--muted); font-size:9px; font-weight:800;">${escapeAccountHtml(account.source === "supabase" ? `Supabase${account.displayName && account.displayName !== account.username ? ` - ${account.displayName}` : ""}` : "Nội bộ")}</span>
+          </td>
+          <td>${account.source === "supabase" ? `<span class="badge blue">Supabase Auth</span>` : `<code style="font-weight:900; color:var(--text-blue);">${escapeAccountHtml(account.password || "")}</code>`}</td>
           <td>${getAccountRoleBadge(account)}</td>
           <td>${account.createdAt ? new Date(account.createdAt).toLocaleString() : "-"}</td>
           <td>
             <div class="row-actions">
-              <button class="mini-action primary" type="button" data-account-action="edit" data-account-username="${escapeAccountHtml(account.username)}">Sửa</button>
-              <button class="mini-action danger" type="button" data-account-action="delete" data-account-username="${escapeAccountHtml(account.username)}">Xóa</button>
+              <button class="mini-action primary" type="button" data-account-action="edit" data-account-source="${account.source}" data-account-key="${escapeAccountHtml(account.key)}">Sửa</button>
+              ${account.source === "local" ? `<button class="mini-action danger" type="button" data-account-action="delete" data-account-source="local" data-account-key="${escapeAccountHtml(account.key)}">Xóa</button>` : ""}
             </div>
           </td>
         </tr>
@@ -3819,31 +3882,46 @@
       renderAuditHistory();
     }
 
-    function openAccountManager() {
+    async function openAccountManager() {
       if (!canManageAccounts()) {
         showToast("Chỉ Admin chính thức mới được quản lý tài khoản.");
         return;
       }
       clearAccountForm();
-      renderAccountManager();
       renderAuditHistory();
       openModal("accountManageModal");
+      renderAccountManager();
+      await loadSupabaseProfilesForManager();
+      renderAccountManager();
     }
 
-    window.editManagedAccount = function(username, event) {
+    window.editManagedAccount = function(username, event, source = "local") {
       event?.preventDefault();
       event?.stopPropagation();
-      const account = findManagedAccount(username);
+      const account = source === "supabase" ? findSupabaseProfile(username) : findManagedAccount(username);
       if (!account) return;
       const usernameInput = document.getElementById("accountUsernameInput");
       const passwordInput = document.getElementById("accountPasswordInput");
       const roleInput = document.getElementById("accountRoleInput");
       if (usernameInput) {
-        usernameInput.value = account.username || "";
-        usernameInput.dataset.editingUsername = account.username || "";
+        usernameInput.value = source === "supabase" ? (account.display_name || account.email || account.user_id || "") : (account.username || "");
+        usernameInput.disabled = false;
+        usernameInput.dataset.editingSource = source;
+        usernameInput.dataset.editingUsername = source === "supabase" ? (account.email || "") : (account.username || "");
+        usernameInput.dataset.editingUserId = source === "supabase" ? (account.user_id || "") : "";
       }
-      if (passwordInput) passwordInput.value = account.password || "";
+      if (passwordInput) {
+        passwordInput.value = source === "supabase" ? "" : (account.password || "");
+        passwordInput.disabled = source === "supabase";
+        passwordInput.placeholder = source === "supabase" ? "Mật khẩu quản lý trong Supabase Auth" : "Nhập mật khẩu";
+      }
       if (roleInput) roleInput.value = normalizeUserRole(account.role);
+      const saveButton = document.getElementById("accountSaveBtn");
+      if (saveButton) {
+        saveButton.firstChild.textContent = source === "supabase" ? "Cập nhật" : "Lưu";
+        const label = saveButton.querySelector("span");
+        if (label) label.textContent = source === "supabase" ? "Update" : "Save";
+      }
     };
 
     window.deleteManagedAccount = function(username, event) {
@@ -3872,7 +3950,31 @@
       });
     };
 
-    function saveAccountFromManager() {
+    async function saveSupabaseProfileFromManager(userId, displayName, role) {
+      if (!userId) {
+        showToast("Không tìm thấy ID tài khoản Supabase.");
+        return;
+      }
+      await supabaseFetch(`/rest/v1/erp_profiles?user_id=eq.${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({
+          display_name: displayName || "Customer",
+          role: normalizeUserRole(role)
+        })
+      });
+      if (getSupabaseUser()?.id === userId) {
+        currentUserProfile = { ...(currentUserProfile || {}), display_name: displayName || "Customer", role: normalizeUserRole(role) };
+        setCurrentRole(role);
+        applyRoleMode();
+      }
+      await loadSupabaseProfilesForManager();
+      clearAccountForm();
+      renderAccountManager();
+      showToast("Đã cập nhật quyền tài khoản Supabase.");
+    }
+
+    async function saveAccountFromManager() {
       if (!canManageAccounts()) {
         showToast("Chỉ Admin chính thức mới được quản lý tài khoản.");
         return;
@@ -3884,6 +3986,17 @@
       const password = String(passwordInput?.value || "");
       const role = normalizeUserRole(roleInput?.value);
       const editingUsername = normalizeAccountUsername(usernameInput?.dataset.editingUsername);
+      const editingSource = usernameInput?.dataset.editingSource || "";
+      const editingUserId = usernameInput?.dataset.editingUserId || "";
+      if (editingSource === "supabase") {
+        try {
+          await saveSupabaseProfileFromManager(editingUserId, username, role);
+        } catch (error) {
+          console.warn("Không cập nhật được Supabase profile:", error);
+          showToast("Không cập nhật được quyền. Cần chạy lại SQL setup để Admin được sửa erp_profiles.");
+        }
+        return;
+      }
       if (!username || !password) {
         showToast("Vui lòng nhập tài khoản và mật khẩu.");
         return;
@@ -9779,13 +9892,14 @@
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
-      const username = button.dataset.accountUsername || "";
+      const accountKey = button.dataset.accountKey || button.dataset.accountUsername || "";
+      const accountSource = button.dataset.accountSource || "local";
       if (button.dataset.accountAction === "edit") {
-        window.editManagedAccount(username, event);
+        window.editManagedAccount(accountKey, event, accountSource);
         return;
       }
       if (button.dataset.accountAction === "delete") {
-        window.deleteManagedAccount(username, event);
+        window.deleteManagedAccount(accountKey, event);
       }
     });
     document.getElementById("auditHistoryTableBody")?.addEventListener("click", (event) => {
