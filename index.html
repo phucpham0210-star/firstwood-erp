@@ -198,7 +198,6 @@
     body.view-only #layoutEditBtn,
     body.view-only #manualEntryBtn,
     body.view-only #uploadExcelBtn,
-    body.view-only #exportExcelBtn,
     body.view-only .row-actions,
     body.view-only [data-bom-copy-target],
     body.view-only [data-bom-entry-row],
@@ -1152,6 +1151,30 @@
     .bom-copy-option:hover {
       border-color: var(--blue);
       background: rgba(47, 127, 255, 0.14);
+    }
+
+    .export-select-option {
+      justify-content: flex-start;
+      align-items: flex-start;
+      gap: 12px;
+      width: 100%;
+      box-sizing: border-box;
+      cursor: pointer;
+    }
+
+    .export-select-option input[type="checkbox"] {
+      flex: 0 0 auto;
+      margin: 3px 2px 0 0;
+    }
+
+    .export-select-content {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .export-select-content strong,
+    .export-select-content span {
+      overflow-wrap: anywhere;
     }
 
     .table-wrap {
@@ -2740,6 +2763,26 @@
     </div>
   </div>
 
+  <div class="modal-backdrop is-hidden" id="sheet2ExportModal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sheet2ExportTitle">
+      <div class="modal-head">
+        <div class="modal-title" id="sheet2ExportTitle">Xuất báo cáo Sheet 2<span>Tick chọn mã hàng cần đưa vào file Excel</span></div>
+        <button class="action-btn" data-close-modal="sheet2ExportModal">Close<span>Đóng</span></button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Danh sách mã hàng<span>Product code selection</span></label>
+          <div class="bom-copy-list" id="sheet2ExportProductList"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="action-btn" id="sheet2ExportSelectAllBtn" type="button">Chọn tất cả<span>Select all</span></button>
+        <button class="action-btn" data-close-modal="sheet2ExportModal" type="button">Cancel<span>Hủy</span></button>
+        <button class="action-btn primary" id="sheet2ExportRunBtn" type="button">Export Excel<span>Xuất Excel</span></button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop is-hidden" id="confirmModal" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
       <div class="modal-head">
@@ -3190,7 +3233,6 @@
         #layoutEditBtn,
         #manualEntryBtn,
         #uploadExcelBtn,
-        #exportExcelBtn,
         #uploadInput,
         [data-row-edit],
         [data-row-copy],
@@ -3218,7 +3260,7 @@
       if (blockedButton) return true;
       if (target.closest("[contenteditable='true'], [data-guest-contenteditable='true']")) return true;
       const input = target.closest("input, select, textarea");
-      return Boolean(input && input.closest("table, .modal, .shipment-card, .order-card") && !input.closest(".filter-bar, .sheet-filters, #filterModal"));
+      return Boolean(input && input.closest("table, .modal, .shipment-card, .order-card") && !input.closest(".filter-bar, .sheet-filters, #filterModal, #sheet2ExportModal, #sheet3ExportModal"));
     }
 
     document.addEventListener("click", (event) => {
@@ -8255,6 +8297,181 @@
       URL.revokeObjectURL(url);
     }
 
+    function getProductDetailForExport(productCode) {
+      const target = String(productCode || "").trim().toLowerCase();
+      const row = Array.from(document.querySelectorAll("[data-product-table] tbody tr"))
+        .find((item) => String(item.cells[1]?.innerText || "").trim().toLowerCase() === target);
+      const text = (index) => row?.cells[index]?.innerText.replace(/\s+/g, " ").trim() || "";
+      return {
+        code: text(1),
+        name: text(2),
+        material: text(3),
+        productL: text(4),
+        productW: text(5),
+        productH: text(6),
+        packL: text(7),
+        packW: text(8),
+        packH: text(9),
+        cbm: text(10),
+        status: text(11),
+        remarks: text(12)
+      };
+    }
+
+    function getSheet2ExportProducts() {
+      const activeCode = document.querySelector(".bom-product-card.active")?.dataset.bomCard || "";
+      return getProductCatalog()
+        .filter((product) => matchesSheet2Filter(product.code, sheet2Filters.productCode))
+        .map((product) => ({
+          ...product,
+          rows: getBomRowsForParent(product.code),
+          checked: product.code === activeCode
+        }));
+    }
+
+    function renderSheet2ExportProductList() {
+      const list = document.getElementById("sheet2ExportProductList");
+      if (!list) return;
+      const products = getSheet2ExportProducts();
+      if (!products.length) {
+        list.innerHTML = `<div class="stat-note" style="padding:16px;">Sheet 2 chưa có mã hàng để xuất.</div>`;
+        return;
+      }
+      list.innerHTML = products.map((product) => {
+        const code = escapeProductionHardwareText(product.code);
+        const name = escapeProductionHardwareText(product.name || "-");
+        const checked = product.checked ? " checked" : "";
+        return `
+          <label class="bom-copy-option export-select-option">
+            <input type="checkbox" value="${code}"${checked}>
+            <span class="export-select-content">
+              <strong>${code}</strong>
+              <span>${name} | ${product.rows.length.toLocaleString()} dòng BOM</span>
+            </span>
+          </label>
+        `;
+      }).join("");
+      if (!list.querySelector("input[type='checkbox']:checked")) {
+        const firstBox = list.querySelector("input[type='checkbox']");
+        if (firstBox) firstBox.checked = true;
+      }
+    }
+
+    function openSheet2ExportModal() {
+      renderSheet2ExportProductList();
+      openModal("sheet2ExportModal");
+    }
+
+    function getSelectedSheet2ExportCodes() {
+      return Array.from(document.querySelectorAll("#sheet2ExportProductList input[type='checkbox']:checked"))
+        .map((input) => input.value)
+        .filter(Boolean);
+    }
+
+    function getSheet2BomRowExportValues(row) {
+      return [
+        getSheet2RowText(row, 1),
+        getSheet2RowText(row, 2),
+        getSheet2RowText(row, 3),
+        getSheet2RowText(row, 4),
+        getSheet2RowText(row, 5),
+        getSheet2RowText(row, 6),
+        getSheet2RowText(row, 7),
+        getSheet2RowText(row, 8)
+      ];
+    }
+
+    function exportSheet2BomWorkbook(selectedCodes = getSelectedSheet2ExportCodes()) {
+      if (typeof XLSX === "undefined") {
+        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
+        return;
+      }
+      const products = selectedCodes
+        .map((code) => {
+          const product = getProductCatalog().find((item) => item.code === code);
+          return product ? { ...product, detail: getProductDetailForExport(code), rows: getBomRowsForParent(code) } : null;
+        })
+        .filter(Boolean);
+      if (!products.length) {
+        showToast("Vui lòng tick chọn ít nhất một mã hàng để xuất.");
+        return;
+      }
+
+      const workbook = XLSX.utils.book_new();
+      const usedNames = new Set();
+      const summaryRows = [
+        ["BÁO CÁO SHEET 2 - BOM STANDARD"],
+        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        [],
+        ["Mã sản phẩm / Product code", "Tên sản phẩm / Product name", "Nguyên liệu / Material", "Kích thước SP / Product size", "Kích thước đóng gói / Packing size", "CBM", "Trạng thái / Status", "Số dòng BOM / BOM lines"]
+      ];
+
+      products.forEach((product) => {
+        const detail = product.detail;
+        summaryRows.push([
+          detail.code || product.code,
+          detail.name || product.name || "",
+          detail.material || "",
+          [detail.productL, detail.productW, detail.productH].filter(Boolean).join(" x "),
+          [detail.packL, detail.packW, detail.packH].filter(Boolean).join(" x "),
+          detail.cbm || "",
+          detail.status || "",
+          product.rows.length
+        ]);
+      });
+
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+      summarySheet["!cols"] = [
+        { wch: 24 }, { wch: 34 }, { wch: 20 }, { wch: 24 },
+        { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 14 }
+      ];
+      summarySheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+      summarySheet["!autofilter"] = { ref: `A4:H${summaryRows.length}` };
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Danh sach ma hang");
+
+      const bomHeaders = [
+        "Tên phần cứng / Hardware name",
+        "Mã phần cứng FW / FW hardware code",
+        "Mã phần cứng PP / PP hardware code",
+        "Số lượng / Quantity",
+        "Vật liệu / Material",
+        "Đơn vị / UOM",
+        "Nhà cung cấp / Supplier",
+        "Trạng thái / Status"
+      ];
+
+      products.forEach((product) => {
+        const detail = product.detail;
+        const rows = [
+          [`BÁO CÁO BOM / BOM REPORT: ${detail.code || product.code}`],
+          ["Mã sản phẩm / Product code", detail.code || product.code],
+          ["Tên sản phẩm / Product name", detail.name || product.name || ""],
+          ["Nguyên liệu / Material", detail.material || ""],
+          ["Kích thước sản phẩm / Product size", [detail.productL, detail.productW, detail.productH].filter(Boolean).join(" x ")],
+          ["Kích thước đóng gói / Packing size", [detail.packL, detail.packW, detail.packH].filter(Boolean).join(" x ")],
+          ["CBM", detail.cbm || ""],
+          ["Trạng thái / Status", detail.status || ""],
+          ["Ghi chú / Remarks", detail.remarks || ""],
+          [],
+          bomHeaders
+        ];
+        product.rows.forEach((row) => rows.push(getSheet2BomRowExportValues(row)));
+
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        worksheet["!cols"] = [
+          { wch: 34 }, { wch: 22 }, { wch: 22 }, { wch: 14 },
+          { wch: 20 }, { wch: 12 }, { wch: 22 }, { wch: 18 }
+        ];
+        worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: bomHeaders.length - 1 } }];
+        worksheet["!autofilter"] = { ref: `A11:H${rows.length}` };
+        XLSX.utils.book_append_sheet(workbook, worksheet, makeExcelSheetName(detail.code || product.code, "BOM", usedNames));
+      });
+
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      writeWorkbookXlsx(workbook, `firstwood-sheet2-bom-report-${dateStamp}.xlsx`);
+      showToast("Đã xuất Excel Sheet 2 theo các mã hàng đã chọn.");
+    }
+
     function getShipmentReportStatus(shipment) {
       return shipment?.status || (shipment?.rgd ? "Đã nhận" : "Chưa nhận");
     }
@@ -8317,9 +8534,9 @@
         const supplier = escapeProductionHardwareText(shipment.supplier || "-");
         const status = escapeProductionHardwareText(getShipmentReportStatus(shipment));
         return `
-          <label class="bom-copy-option" style="display:flex; align-items:flex-start; gap:10px;">
-            <input type="checkbox" value="${index}" checked style="margin-top:4px;">
-            <span style="display:block;">
+          <label class="bom-copy-option export-select-option">
+            <input type="checkbox" value="${index}" checked>
+            <span class="export-select-content">
               <strong>${invoice}</strong>
               <span>${supplier} | Chứng từ: ${aggregates.docTotal.toLocaleString()} | Thực nhận: ${aggregates.recTotal.toLocaleString()} | ${status}</span>
             </span>
@@ -8483,6 +8700,10 @@
     }
 
     function exportCurrentTable() {
+      if (getCurrentSection()?.id === "sheet-bom") {
+        openSheet2ExportModal();
+        return;
+      }
       if (getCurrentSection()?.id === "sheet-import") {
         openSheet3ExportModal();
         return;
@@ -8766,6 +8987,18 @@
       });
     });
     document.getElementById("exportExcelBtn").addEventListener("click", exportCurrentTable);
+    document.getElementById("sheet2ExportSelectAllBtn")?.addEventListener("click", () => {
+      const boxes = Array.from(document.querySelectorAll("#sheet2ExportProductList input[type='checkbox']"));
+      const shouldCheck = boxes.some((box) => !box.checked);
+      boxes.forEach((box) => {
+        box.checked = shouldCheck;
+      });
+    });
+    document.getElementById("sheet2ExportRunBtn")?.addEventListener("click", () => {
+      const selectedCodes = getSelectedSheet2ExportCodes();
+      exportSheet2BomWorkbook(selectedCodes);
+      if (selectedCodes.length) closeModal("sheet2ExportModal");
+    });
     document.getElementById("sheet3ExportSelectAllBtn")?.addEventListener("click", () => {
       const boxes = Array.from(document.querySelectorAll("#sheet3ExportShipmentList input[type='checkbox']"));
       const shouldCheck = boxes.some((box) => !box.checked);

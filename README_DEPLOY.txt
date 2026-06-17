@@ -15,6 +15,6 @@ Cach dung link:
 5. Quyen admin/viewer lay tu bang public.erp_profiles trong Supabase.
 
 Cap nhat sau nay:
-- Cap nhat file trong thu muc ERP goc.
-- Chay script UPDATE_GITHUB_PAGES_SITE.ps1 o thu muc ERP goc.
-- Commit/push thu muc GITHUB_PAGES_SITE len GitHub.
+- Cap nhat file trong DU_AN/APP_LOCAL.
+- Chay script DU_AN/UPDATE_GITHUB_PAGES_SITE.ps1.
+- Commit/push DU_AN/GITHUB_PAGES_SITE len GitHub bang GitHub Desktop.
