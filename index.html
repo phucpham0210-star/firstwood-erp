@@ -9224,12 +9224,297 @@
     function writeWorkbookXlsx(workbook, filename) {
       const array = XLSX.write(workbook, { bookType: "xlsx", type: "array", bookSST: true, cellStyles: true });
       const blob = new Blob([array], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8" });
+      downloadBlob(blob, filename);
+    }
+
+    function downloadBlob(blob, filename) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = filename;
       link.click();
       URL.revokeObjectURL(url);
+    }
+
+    const XLSX_CRC32_TABLE = (() => {
+      const table = new Uint32Array(256);
+      for (let i = 0; i < 256; i += 1) {
+        let crc = i;
+        for (let bit = 0; bit < 8; bit += 1) crc = (crc & 1) ? (0xEDB88320 ^ (crc >>> 1)) : (crc >>> 1);
+        table[i] = crc >>> 0;
+      }
+      return table;
+    })();
+
+    function crc32(bytes) {
+      let crc = 0xFFFFFFFF;
+      for (let i = 0; i < bytes.length; i += 1) crc = XLSX_CRC32_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+      return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+
+    function uint8FromString(text) {
+      return new TextEncoder().encode(String(text || ""));
+    }
+
+    function stringFromUint8(bytes) {
+      return new TextDecoder().decode(bytes);
+    }
+
+    function concatUint8(parts) {
+      const total = parts.reduce((sum, part) => sum + part.length, 0);
+      const output = new Uint8Array(total);
+      let offset = 0;
+      parts.forEach((part) => {
+        output.set(part, offset);
+        offset += part.length;
+      });
+      return output;
+    }
+
+    async function deflateRaw(bytes) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    async function inflateRaw(bytes) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    function findZipEndOfCentralDirectory(bytes) {
+      for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 66000); i -= 1) {
+        if (bytes[i] === 0x50 && bytes[i + 1] === 0x4B && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) return i;
+      }
+      return -1;
+    }
+
+    async function readZipEntries(arrayBuffer) {
+      const bytes = new Uint8Array(arrayBuffer);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const eocd = findZipEndOfCentralDirectory(bytes);
+      if (eocd < 0) throw new Error("Không đọc được cấu trúc XLSX.");
+      const entryCount = view.getUint16(eocd + 10, true);
+      let offset = view.getUint32(eocd + 16, true);
+      const entries = new Map();
+      for (let i = 0; i < entryCount; i += 1) {
+        if (view.getUint32(offset, true) !== 0x02014B50) throw new Error("File XLSX không hợp lệ.");
+        const method = view.getUint16(offset + 10, true);
+        const compressedSize = view.getUint32(offset + 20, true);
+        const fileNameLength = view.getUint16(offset + 28, true);
+        const extraLength = view.getUint16(offset + 30, true);
+        const commentLength = view.getUint16(offset + 32, true);
+        const localOffset = view.getUint32(offset + 42, true);
+        const fileName = stringFromUint8(bytes.slice(offset + 46, offset + 46 + fileNameLength));
+        const localNameLength = view.getUint16(localOffset + 26, true);
+        const localExtraLength = view.getUint16(localOffset + 28, true);
+        const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+        const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+        let data;
+        if (method === 0) data = compressed;
+        else if (method === 8) data = await inflateRaw(compressed);
+        else throw new Error(`Excel zip method ${method} chưa được hỗ trợ.`);
+        entries.set(fileName, data);
+        offset += 46 + fileNameLength + extraLength + commentLength;
+      }
+      return entries;
+    }
+
+    function putUint16LE(bytes, offset, value) {
+      bytes[offset] = value & 0xFF;
+      bytes[offset + 1] = (value >>> 8) & 0xFF;
+    }
+
+    function putUint32LE(bytes, offset, value) {
+      bytes[offset] = value & 0xFF;
+      bytes[offset + 1] = (value >>> 8) & 0xFF;
+      bytes[offset + 2] = (value >>> 16) & 0xFF;
+      bytes[offset + 3] = (value >>> 24) & 0xFF;
+    }
+
+    async function writeZipEntries(entries) {
+      const localParts = [];
+      const centralParts = [];
+      let offset = 0;
+      for (const [fileName, data] of entries.entries()) {
+        const nameBytes = uint8FromString(fileName);
+        const source = data instanceof Uint8Array ? data : new Uint8Array(data);
+        const compressed = await deflateRaw(source);
+        const crc = crc32(source);
+        const localHeader = new Uint8Array(30 + nameBytes.length);
+        putUint32LE(localHeader, 0, 0x04034B50);
+        putUint16LE(localHeader, 4, 20);
+        putUint16LE(localHeader, 6, 0);
+        putUint16LE(localHeader, 8, 8);
+        putUint16LE(localHeader, 10, 0);
+        putUint16LE(localHeader, 12, 0);
+        putUint32LE(localHeader, 14, crc);
+        putUint32LE(localHeader, 18, compressed.length);
+        putUint32LE(localHeader, 22, source.length);
+        putUint16LE(localHeader, 26, nameBytes.length);
+        localHeader.set(nameBytes, 30);
+        localParts.push(localHeader, compressed);
+
+        const centralHeader = new Uint8Array(46 + nameBytes.length);
+        putUint32LE(centralHeader, 0, 0x02014B50);
+        putUint16LE(centralHeader, 4, 20);
+        putUint16LE(centralHeader, 6, 20);
+        putUint16LE(centralHeader, 8, 0);
+        putUint16LE(centralHeader, 10, 8);
+        putUint16LE(centralHeader, 12, 0);
+        putUint16LE(centralHeader, 14, 0);
+        putUint32LE(centralHeader, 16, crc);
+        putUint32LE(centralHeader, 20, compressed.length);
+        putUint32LE(centralHeader, 24, source.length);
+        putUint16LE(centralHeader, 28, nameBytes.length);
+        putUint32LE(centralHeader, 42, offset);
+        centralHeader.set(nameBytes, 46);
+        centralParts.push(centralHeader);
+        offset += localHeader.length + compressed.length;
+      }
+
+      const centralDirectory = concatUint8(centralParts);
+      const centralOffset = offset;
+      const eocd = new Uint8Array(22);
+      putUint32LE(eocd, 0, 0x06054B50);
+      putUint16LE(eocd, 8, entries.size);
+      putUint16LE(eocd, 10, entries.size);
+      putUint32LE(eocd, 12, centralDirectory.length);
+      putUint32LE(eocd, 16, centralOffset);
+      return concatUint8([...localParts, centralDirectory, eocd]);
+    }
+
+    function xmlEscape(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function xmlAttr(value) {
+      return xmlEscape(value).replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    }
+
+    function getNextRelationshipId(xml) {
+      const ids = Array.from(String(xml || "").matchAll(/Id="rId(\d+)"/g)).map((match) => Number(match[1]) || 0);
+      return `rId${Math.max(0, ...ids) + 1}`;
+    }
+
+    function ensureContentTypeDefault(xml, extension, contentType) {
+      if (new RegExp(`<Default\\s+Extension="${extension}"`, "i").test(xml)) return xml;
+      return xml.replace("</Types>", `<Default Extension="${extension}" ContentType="${contentType}"/></Types>`);
+    }
+
+    function ensureContentTypeOverride(xml, partName, contentType) {
+      if (xml.includes(`PartName="${partName}"`)) return xml;
+      return xml.replace("</Types>", `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
+    }
+
+    function buildDrawingXml(images) {
+      const anchors = images.map((image, index) => {
+        const id = index + 1;
+        const name = xmlAttr(image.name || `Preview ${id}`);
+        return `
+  <xdr:oneCellAnchor>
+    <xdr:from><xdr:col>${image.col}</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>${image.row}</xdr:row><xdr:rowOff>57150</xdr:rowOff></xdr:from>
+    <xdr:ext cx="666750" cy="571500"/>
+    <xdr:pic>
+      <xdr:nvPicPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvPicPr/></xdr:nvPicPr>
+      <xdr:blipFill><a:blip r:embed="rId${id}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+      <xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:oneCellAnchor>`;
+      }).join("");
+      return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors}
+</xdr:wsDr>`;
+    }
+
+    function buildDrawingRelsXml(images) {
+      const rels = images.map((image, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${xmlAttr(image.mediaName)}"/>`).join("");
+      return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`;
+    }
+
+    async function fetchImageForWorkbook(imageUrl, fallbackName) {
+      if (!imageUrl) return null;
+      try {
+        const response = await fetch(imageUrl);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const contentType = blob.type || (imageUrl.toLowerCase().includes(".png") ? "image/png" : "image/jpeg");
+        const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+        return { bytes, contentType, extension, name: fallbackName };
+      } catch (error) {
+        console.warn("Không tải được ảnh Excel:", imageUrl, error);
+        return null;
+      }
+    }
+
+    async function writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet = new Map()) {
+      if (!window.CompressionStream || !window.DecompressionStream) {
+        writeWorkbookXlsx(workbook, filename);
+        return false;
+      }
+      const array = XLSX.write(workbook, { bookType: "xlsx", type: "array", bookSST: true, cellStyles: true });
+      const entries = await readZipEntries(array);
+      const sheetNames = workbook.SheetNames || [];
+      let drawingIndex = 1;
+      let mediaIndex = 1;
+      let insertedImageCount = 0;
+      let contentTypes = stringFromUint8(entries.get("[Content_Types].xml"));
+      contentTypes = ensureContentTypeDefault(contentTypes, "jpg", "image/jpeg");
+      contentTypes = ensureContentTypeDefault(contentTypes, "jpeg", "image/jpeg");
+      contentTypes = ensureContentTypeDefault(contentTypes, "png", "image/png");
+      contentTypes = ensureContentTypeDefault(contentTypes, "webp", "image/webp");
+
+      for (let sheetNumber = 1; sheetNumber <= sheetNames.length; sheetNumber += 1) {
+        const sheetName = sheetNames[sheetNumber - 1];
+        const anchors = imageAnchorsBySheet.get(sheetName) || [];
+        if (!anchors.length) continue;
+        const drawingImages = [];
+        for (const anchor of anchors) {
+          const image = await fetchImageForWorkbook(anchor.imageUrl, anchor.name);
+          if (!image) continue;
+          const mediaName = `image${mediaIndex}.${image.extension}`;
+          mediaIndex += 1;
+          entries.set(`xl/media/${mediaName}`, image.bytes);
+          drawingImages.push({ ...anchor, mediaName, contentType: image.contentType });
+        }
+        if (!drawingImages.length) continue;
+
+        const drawingName = `drawing${drawingIndex}.xml`;
+        drawingIndex += 1;
+        const drawingPath = `xl/drawings/${drawingName}`;
+        entries.set(drawingPath, uint8FromString(buildDrawingXml(drawingImages)));
+        entries.set(`xl/drawings/_rels/${drawingName}.rels`, uint8FromString(buildDrawingRelsXml(drawingImages)));
+        contentTypes = ensureContentTypeOverride(contentTypes, `/xl/drawings/${drawingName}`, "application/vnd.openxmlformats-officedocument.drawing+xml");
+
+        const sheetPath = `xl/worksheets/sheet${sheetNumber}.xml`;
+        let sheetXml = stringFromUint8(entries.get(sheetPath));
+        if (!/xmlns:r=/.test(sheetXml)) {
+          sheetXml = sheetXml.replace("<worksheet ", '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ');
+        }
+        const sheetRelsPath = `xl/worksheets/_rels/sheet${sheetNumber}.xml.rels`;
+        let relsXml = entries.has(sheetRelsPath)
+          ? stringFromUint8(entries.get(sheetRelsPath))
+          : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+        const relId = getNextRelationshipId(relsXml);
+        relsXml = relsXml.replace("</Relationships>", `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/${drawingName}"/></Relationships>`);
+        if (!sheetXml.includes("<drawing ")) {
+          sheetXml = sheetXml.replace("</worksheet>", `<drawing r:id="${relId}"/></worksheet>`);
+        }
+        entries.set(sheetPath, uint8FromString(sheetXml));
+        entries.set(sheetRelsPath, uint8FromString(relsXml));
+        insertedImageCount += drawingImages.length;
+      }
+
+      entries.set("[Content_Types].xml", uint8FromString(contentTypes));
+      const output = await writeZipEntries(entries);
+      const blob = new Blob([output], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8" });
+      downloadBlob(blob, filename);
+      return insertedImageCount > 0;
     }
 
     function getProductDetailForExport(productCode) {
@@ -9485,7 +9770,7 @@
       openModal("sheet3ExportModal");
     }
 
-    function exportSheet3ImportWorkbook(selectedIndexes = importShipments.map((_, index) => index)) {
+    async function exportSheet3ImportWorkbook(selectedIndexes = importShipments.map((_, index) => index)) {
       if (typeof XLSX === "undefined") {
         showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
         return;
@@ -9502,6 +9787,7 @@
       const usedNames = new Set();
       const hardwareLookup = createImportHardwareLookup();
       const detailSheetNames = new Map();
+      const sheetImageAnchors = new Map();
       const detailHeaders = [
         "Hình ảnh / Preview",
         "Tên hàng / Item name",
@@ -9610,6 +9896,8 @@
         });
 
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        const sheetName = detailSheetNames.get(index);
+        const imageAnchors = [];
         worksheet["!cols"] = [
           { wch: 20 }, { wch: 32 }, { wch: 22 }, { wch: 22 },
           { wch: 24 }, { wch: 20 }, { wch: 12 }, { wch: 22 },
@@ -9623,6 +9911,12 @@
           const imageUrl = getHardwarePreviewExcelUrl(item.pp);
           const imageAddress = XLSX.utils.encode_cell({ r: itemOffset + 12, c: 0 });
           if (imageUrl) {
+            imageAnchors.push({
+              row: itemOffset + 12,
+              col: 0,
+              imageUrl,
+              name: item.pp || item.fw || item.name || "Preview"
+            });
             worksheet[imageAddress] = {
               t: "s",
               f: `IMAGE("${imageUrl.replace(/"/g, '""')}","${String(item.pp || "Preview").replace(/"/g, '""')}",1)`,
@@ -9638,12 +9932,21 @@
             });
           }
         });
-        XLSX.utils.book_append_sheet(workbook, worksheet, detailSheetNames.get(index));
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        if (imageAnchors.length) sheetImageAnchors.set(sheetName, imageAnchors);
       });
 
       const dateStamp = new Date().toISOString().slice(0, 10);
-      writeWorkbookXlsx(workbook, `firstwood-sheet3-import-report-${dateStamp}.xlsx`);
-      showToast("Đã xuất Excel Sheet 3: mỗi lô hàng là một sheet.");
+      try {
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, `firstwood-sheet3-import-report-${dateStamp}.xlsx`, sheetImageAnchors);
+        showToast(hasEmbeddedImages
+          ? "Đã xuất Excel Sheet 3 kèm hình ảnh."
+          : "Đã xuất Excel Sheet 3. Trình duyệt không hỗ trợ nhúng ảnh, file dùng công thức IMAGE dự phòng.");
+      } catch (error) {
+        console.warn("Không nhúng được ảnh vào Excel Sheet 3:", error);
+        writeWorkbookXlsx(workbook, `firstwood-sheet3-import-report-${dateStamp}.xlsx`);
+        showToast("Đã xuất Excel Sheet 3. Nếu ảnh chưa hiện, hãy mở bằng Excel 365 để dùng công thức IMAGE.");
+      }
     }
 
     function exportCurrentTable() {
