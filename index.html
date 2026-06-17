@@ -3048,7 +3048,7 @@
           <div class="bom-copy-list" id="sheet3ExportShipmentList"></div>
         </div>
         <label class="check-row" style="width:fit-content;">
-          <input id="sheet3ExportIncludeStockSummary" type="checkbox" checked>
+          <input id="sheet3ExportIncludeStockSummary" type="checkbox">
           <span>Thêm sheet tổng tồn kho sau nhận</span>
         </label>
       </div>
@@ -9772,7 +9772,7 @@
     function openSheet3ExportModal() {
       renderSheet3ExportShipmentList();
       const includeSummary = document.getElementById("sheet3ExportIncludeStockSummary");
-      if (includeSummary) includeSummary.checked = true;
+      if (includeSummary) includeSummary.checked = false;
       openModal("sheet3ExportModal");
     }
 
@@ -9959,7 +9959,12 @@
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Danh sach lo hang");
 
       if (options.includeStockSummary) {
-        appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup);
+        try {
+          appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup);
+        } catch (error) {
+          console.warn("Không tạo được sheet tổng tồn kho sau nhận:", error);
+          showToast("Sheet tổng tồn kho bị lỗi tính toán, file vẫn xuất các lô hàng đã chọn.");
+        }
       }
 
       selectedShipments.forEach(({ shipment, index }) => {
@@ -10387,10 +10392,19 @@
         box.checked = shouldCheck;
       });
     });
-    document.getElementById("sheet3ExportRunBtn")?.addEventListener("click", () => {
+    document.getElementById("sheet3ExportRunBtn")?.addEventListener("click", async () => {
       const selectedIndexes = getSelectedSheet3ExportIndexes();
-      exportSheet3ImportWorkbook(selectedIndexes, { includeStockSummary: shouldIncludeSheet3StockSummary() });
-      if (selectedIndexes.length) closeModal("sheet3ExportModal");
+      const button = document.getElementById("sheet3ExportRunBtn");
+      if (button) button.disabled = true;
+      try {
+        await exportSheet3ImportWorkbook(selectedIndexes, { includeStockSummary: shouldIncludeSheet3StockSummary() });
+        if (selectedIndexes.length) closeModal("sheet3ExportModal");
+      } catch (error) {
+        console.warn("Xuất Excel Sheet 3 thất bại:", error);
+        showToast("Không xuất được Excel Sheet 3. Em đã ghi lỗi vào console để kiểm tra tiếp.");
+      } finally {
+        if (button) button.disabled = false;
+      }
     });
     function normalizeImportHeader(value) {
       return String(value || "")
