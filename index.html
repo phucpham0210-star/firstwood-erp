@@ -3059,7 +3059,7 @@
   <div class="modal-backdrop is-hidden" id="sheet2ExportModal" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sheet2ExportTitle">
       <div class="modal-head">
-        <div class="modal-title" id="sheet2ExportTitle">Xuất báo cáo Sheet 2<span>Tick chọn mã hàng cần đưa vào file Excel</span></div>
+        <div class="modal-title" id="sheet2ExportTitle">Xuất báo cáo Sheet 4<span>Tick chọn mã hàng cần đưa vào file Excel BOM Standard</span></div>
         <button class="action-btn" data-close-modal="sheet2ExportModal">Close<span>Đóng</span></button>
       </div>
       <div class="modal-body">
@@ -9554,7 +9554,7 @@
       if (!list) return;
       const products = getSheet2ExportProducts();
       if (!products.length) {
-        list.innerHTML = `<div class="stat-note" style="padding:16px;">Sheet 2 chưa có mã hàng để xuất.</div>`;
+        list.innerHTML = `<div class="stat-note" style="padding:16px;">Sheet 4 chưa có mã hàng để xuất.</div>`;
         return;
       }
       list.innerHTML = products.map((product) => {
@@ -9620,7 +9620,7 @@
       const workbook = XLSX.utils.book_new();
       const usedNames = new Set();
       const summaryRows = [
-        ["BÁO CÁO SHEET 2 - BOM STANDARD"],
+        ["BÁO CÁO SHEET 4 - BOM STANDARD"],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
         [],
         ["Mã sản phẩm / Product code", "Tên sản phẩm / Product name", "Nguyên liệu / Material", "Kích thước SP / Product size", "Kích thước đóng gói / Packing size", "CBM", "Trạng thái / Status", "Số dòng BOM / BOM lines"]
@@ -9688,8 +9688,8 @@
       });
 
       const dateStamp = new Date().toISOString().slice(0, 10);
-      writeWorkbookXlsx(workbook, `firstwood-sheet2-bom-report-${dateStamp}.xlsx`);
-      showToast("Đã xuất Excel Sheet 2 theo các mã hàng đã chọn.");
+      writeWorkbookXlsx(workbook, `firstwood-sheet4-bom-standard-${dateStamp}.xlsx`);
+      showToast("Đã xuất Excel Sheet 4 theo các mã hàng đã chọn.");
     }
 
     function getShipmentReportStatus(shipment) {
