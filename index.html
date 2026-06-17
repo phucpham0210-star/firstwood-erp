@@ -1642,30 +1642,152 @@
     }
 
     @media (max-width: 760px) {
+      html {
+        height: auto;
+      }
+
       body {
         min-width: 0;
+        height: auto;
+        overflow: auto;
+        font-size: 13px;
+      }
+
+      .app {
+        min-height: 100vh;
+        height: auto;
+        overflow: visible;
       }
 
       .top-nav {
         position: static;
         grid-template-columns: 1fr;
-        padding: 12px;
-        gap: 12px;
+        padding: 10px;
+        gap: 10px;
       }
 
       .nav-menu,
       .nav-actions,
       .category-bar {
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 4px;
+      }
+
+      .nav-menu {
+        gap: 14px;
+      }
+
+      .nav-item {
+        min-width: 96px;
+        padding: 6px 0;
+      }
+
+      .nav-item strong {
+        font-size: 12px;
+        line-height: 1.15;
+        white-space: normal;
+      }
+
+      .nav-item span {
+        font-size: 9px;
+      }
+
+      .nav-actions {
+        justify-content: flex-start;
+        gap: 8px;
+      }
+
+      .action-btn {
+        flex: 0 0 auto;
+        min-width: 84px;
+        height: 36px;
+        padding: 0 10px;
+        font-size: 11px;
+      }
+
+      .action-btn span {
+        font-size: 9px;
+      }
+
+      .language-switch {
+        flex: 0 0 auto;
+      }
+
+      .language-btn {
+        min-width: 48px;
+        height: 28px;
       }
 
       .main {
-        padding: 14px;
+        padding: 10px;
+        min-height: auto;
+        overflow: visible;
+      }
+
+      .sheet-view {
+        height: auto;
+        min-height: auto;
+        overflow: visible;
       }
 
       .dashboard,
       .sheet-grid {
         grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      [data-status-dashboard] {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .stat-card,
+      [data-status-dashboard] .stat-card {
+        min-height: 88px;
+        padding: 10px;
+        gap: 8px;
+      }
+
+      .stat-value,
+      [data-status-dashboard] .stat-value {
+        font-size: 22px;
+      }
+
+      .status-pill {
+        min-height: 30px;
+        padding: 5px 9px;
+        font-size: 10px;
+      }
+
+      .status-pill span {
+        font-size: 9px;
+      }
+
+      .toolbar,
+      .sheet-tools,
+      .filter-bar,
+      .sheet-filters,
+      .bom-table-toolbar {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 8px;
+      }
+
+      .filter-bar .control,
+      .sheet-filters .control,
+      .toolbar .control {
+        min-width: 150px;
+        flex: 1 1 150px;
+      }
+
+      .filter-launch,
+      .tab,
+      .mini-action {
+        min-height: 34px;
+        white-space: nowrap;
       }
 
       .bom-layout {
@@ -1682,12 +1804,109 @@
       .section-head {
         align-items: start;
         flex-direction: column;
+        gap: 8px;
       }
 
       .form-grid,
       .column-list,
       .criteria-row {
         grid-template-columns: 1fr;
+      }
+
+      .table-shell {
+        max-height: none;
+        min-height: 220px;
+      }
+
+      .sheet-view > .table-shell:not(.is-hidden) {
+        flex: 0 0 auto;
+      }
+
+      .table-wrap {
+        max-height: 62vh;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      table {
+        min-width: 1040px;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+      }
+
+      .modal-backdrop {
+        align-items: stretch;
+        padding: 10px;
+      }
+
+      .modal {
+        width: 100%;
+        max-width: none;
+        max-height: calc(100vh - 20px);
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+      }
+
+      .modal-head {
+        min-height: 48px;
+        padding: 10px 12px;
+      }
+
+      .modal-body {
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .modal-actions {
+        padding: 0 12px 12px;
+        flex-wrap: wrap;
+      }
+
+      .modal-actions .action-btn {
+        flex: 1 1 120px;
+      }
+
+      #orderCheckModal .modal {
+        width: 100%;
+        max-height: calc(100vh - 20px);
+      }
+
+      #orderCheckModal .modal-body {
+        overflow: auto;
+      }
+
+      #orderCheckModal .table-wrap {
+        max-height: 52vh;
+      }
+
+      #shipmentCardsContainer,
+      #warehouseCardsContainer,
+      #orderCardsContainer {
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .brand-name {
+        font-size: 16px;
+      }
+
+      .brand-subtitle {
+        font-size: 9px;
+      }
+
+      [data-status-dashboard] {
+        grid-template-columns: 1fr;
+      }
+
+      .action-btn {
+        min-width: 78px;
+        padding: 0 8px;
       }
     }
   </style>
