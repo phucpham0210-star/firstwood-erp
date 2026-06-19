@@ -2937,6 +2937,10 @@
       </div>
       <div class="modal-body" style="padding: 16px 0;">
         <div class="bom-copy-list" id="orderCheckOrderList" style="margin: 0 16px 14px;"></div>
+        <div id="orderCheckViewSwitch" style="display:flex; gap:8px; margin:0 16px 14px; flex-wrap:wrap;">
+          <button class="action-btn primary" data-order-check-view="product" type="button">Theo sản phẩm<span>By product</span></button>
+          <button class="action-btn" data-order-check-view="shortage" type="button">Tổng hợp thiếu<span>Shortage summary</span></button>
+        </div>
         <div class="table-shell compact" style="margin: 0; border-left: 0; border-right: 0; background: transparent;">
           <div class="table-wrap">
             <table id="orderCheckResultTable">
@@ -7607,6 +7611,19 @@
     }
 
     let orderCheckContext = { type: "orders", workOrderNo: null };
+    let orderCheckViewMode = "product";
+
+    function syncOrderCheckViewSwitch() {
+      document.querySelectorAll("[data-order-check-view]").forEach(button => {
+        button.classList.toggle("primary", button.dataset.orderCheckView === orderCheckViewMode);
+      });
+    }
+
+    function setOrderCheckViewMode(mode) {
+      orderCheckViewMode = mode === "shortage" ? "shortage" : "product";
+      syncOrderCheckViewSwitch();
+      renderOrderCheckResults();
+    }
 
     function getOrderCheckAvailableMap(bomLines = getOrderCheckBomLines(), options = {}) {
       const inboundTotals = {};
@@ -7836,7 +7853,8 @@
             const groupKey = allocation.key || getOrderCheckGroupKey(allocation);
             if (!groupKey) return;
             const priority = getOrderCheckPriorityNumber(allocation.priority, 1);
-            const rowKey = `${productKey}|${priority}|${groupKey}`;
+            const sourceMainPp = String(bom.pp || bom.fw || bom.name || "-").trim();
+            const rowKey = `${productKey}|${priority}|${sourceMainPp.toLowerCase()}|${groupKey}`;
             const master = hardwareMap.get(groupKey) || {};
             if (!rows.has(rowKey)) {
               rows.set(rowKey, {
@@ -7850,6 +7868,7 @@
                 pp: master.pp || allocation.pp || "-",
                 priority,
                 supplyType: allocation.supplyType || (priority === 1 ? "Mã chính" : "Mã thay thế"),
+                sourceMainPp,
                 uom: normalizeDownstreamUom(master.uom || allocation.uom || "-"),
                 requiredQty: 0,
                 availableQty: 0,
@@ -7897,12 +7916,42 @@
       return buildOrderCheckRowsFromItems(checkItems, { excludeWoNo: woNo });
     }
 
+    function buildOrderCheckShortageSummary(rows) {
+      const summary = new Map();
+      rows.forEach(row => {
+        const groupKey = getOrderCheckGroupKey(row);
+        if (!groupKey) return;
+        if (!summary.has(groupKey)) {
+          summary.set(groupKey, {
+            ...row,
+            key: groupKey,
+            requiredQty: 0,
+            availableQty: 0,
+            shortageQty: 0,
+            productRefs: new Set(),
+            isSummary: true
+          });
+        }
+        const item = summary.get(groupKey);
+        item.requiredQty += Number(row.requiredQty) || 0;
+        item.availableQty += Number(row.availableQty) || 0;
+        item.shortageQty += Number(row.shortageQty) || 0;
+        item.productRefs.add(row.productCode);
+      });
+      return Array.from(summary.values()).sort((a, b) => {
+        if (b.shortageQty !== a.shortageQty) return b.shortageQty - a.shortageQty;
+        return String(a.pp || a.fw || a.name).localeCompare(String(b.pp || b.fw || b.name), "vi", { sensitivity: "base" });
+      });
+    }
+
     function renderOrderCheckResults() {
       const tbody = document.getElementById("orderCheckResultBody");
       if (!tbody) return;
-      const rows = orderCheckContext.type === "workOrder"
+      syncOrderCheckViewSwitch();
+      const detailRows = orderCheckContext.type === "workOrder"
         ? buildWorkOrderCheckRows(orderCheckContext.workOrderNo)
         : buildOrderCheckRows(getSelectedOrderCheckIndexes());
+      const rows = orderCheckViewMode === "shortage" ? buildOrderCheckShortageSummary(detailRows) : detailRows;
       if (orderCheckContext.type !== "workOrder" && !getSelectedOrderCheckIndexes().length) {
         tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Vui lòng chọn ít nhất một đơn hàng.</td></tr>`;
         return;
@@ -7914,17 +7963,20 @@
       let currentProduct = "";
       tbody.innerHTML = rows.map(row => {
         const productKey = String(row.productCode || "").toLowerCase();
-        const productHeader = productKey !== currentProduct
+        const productHeader = orderCheckViewMode === "product" && productKey !== currentProduct
           ? `<tr class="order-check-product-row"><td colspan="9">SẢN PHẨM: ${row.productCode} — ${row.productName} | Số lượng sản xuất: ${row.productQty.toLocaleString()}</td></tr>`
           : "";
         currentProduct = productKey;
+        const issueLabel = orderCheckViewMode === "shortage"
+          ? `Dùng cho ${row.productRefs.size.toLocaleString()} sản phẩm`
+          : `${row.supplyType} — Ưu tiên ${row.priority}${row.priority > 1 ? `<br>Cho mã chính: ${row.sourceMainPp}` : ""}`;
         return `${productHeader}
           <tr>
             <td>${renderHardwarePreviewBox(row.pp)}</td>
             <td>${row.name}</td>
             <td>${row.fw}</td>
             <td>${row.pp}</td>
-            <td><span class="badge ${row.priority === 1 ? "green" : "orange"}">${row.supplyType} — Ưu tiên ${row.priority}</span></td>
+            <td><span class="badge ${orderCheckViewMode === "shortage" ? (row.shortageQty > 0 ? "red" : "green") : (row.priority === 1 ? "green" : "yellow")}">${issueLabel}</span></td>
             <td>${row.uom}</td>
             <td>${row.requiredQty.toLocaleString()}</td>
             <td>${row.availableQty.toLocaleString()}</td>
@@ -11350,6 +11402,10 @@
     document.getElementById("sheet5WoFilterResetBtn")?.addEventListener("click", resetSheet5Filters);
     document.getElementById("orderCheckRunBtn")?.addEventListener("click", renderOrderCheckResults);
     document.getElementById("orderCheckExportBtn")?.addEventListener("click", exportOrderCheckReport);
+    document.getElementById("orderCheckViewSwitch")?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-order-check-view]");
+      if (button) setOrderCheckViewMode(button.dataset.orderCheckView);
+    });
     document.getElementById("sheet5FilterToggleBtn")?.addEventListener("click", () => {
       const toggleBtn = document.getElementById("sheet5FilterToggleBtn");
       const isOpen = !toggleBtn.classList.contains("active");
