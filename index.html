@@ -1513,8 +1513,18 @@
     }
 
     #orderCheckResultTable {
-      min-width: 1180px;
+      min-width: 1320px;
       table-layout: fixed;
+    }
+
+    #orderCheckResultTable .order-check-product-row td {
+      width: auto;
+      padding: 12px 16px;
+      color: #dbeafe;
+      background: #172238;
+      border-top: 2px solid #3b82f6;
+      font-weight: 900;
+      text-align: left;
     }
 
     #orderCheckResultTable th:nth-child(1),
@@ -1536,15 +1546,20 @@
 
     #orderCheckResultTable th:nth-child(5),
     #orderCheckResultTable td:nth-child(5) {
-      width: 88px;
+      width: 130px;
     }
 
     #orderCheckResultTable th:nth-child(6),
-    #orderCheckResultTable td:nth-child(6),
+    #orderCheckResultTable td:nth-child(6) {
+      width: 88px;
+    }
+
     #orderCheckResultTable th:nth-child(7),
     #orderCheckResultTable td:nth-child(7),
     #orderCheckResultTable th:nth-child(8),
-    #orderCheckResultTable td:nth-child(8) {
+    #orderCheckResultTable td:nth-child(8),
+    #orderCheckResultTable th:nth-child(9),
+    #orderCheckResultTable td:nth-child(9) {
       width: 130px;
     }
 
@@ -2931,6 +2946,7 @@
                   <th>Tên hàng<span>Item Name</span></th>
                   <th>Mã phần cứng FW<span>FW Hardware Code</span></th>
                   <th>Mã phần cứng PP<span>PP Hardware Code</span></th>
+                  <th>Thứ tự cấp<span>Issue Priority</span></th>
                   <th>Đơn vị<span>UOM</span></th>
                   <th>Số lượng cần<span>Required Qty</span></th>
                   <th>Số lượng khả dụng<span>Available Qty</span></th>
@@ -2938,7 +2954,7 @@
                 </tr>
               </thead>
               <tbody id="orderCheckResultBody">
-                <tr><td colspan="8" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Chọn đơn hàng rồi bấm Kiểm tra.</td></tr>
+                <tr><td colspan="9" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Chọn đơn hàng rồi bấm Kiểm tra.</td></tr>
               </tbody>
             </table>
           </div>
@@ -7668,11 +7684,12 @@
       };
 
       if (!hasProductionSetup) {
-        addComponent(1, { ...bom, qty: 1 });
+        addComponent(1, { ...bom, qty: 1, supplyType: "Mã chính" });
       } else {
         addComponent(settings.priority || 1, {
           ...bom,
-          qty: getOrderCheckComponentQty(settings.qty, 1)
+          qty: getOrderCheckComponentQty(settings.qty, 1),
+          supplyType: "Mã chính"
         });
         children.forEach(child => {
           const childPp = String(child.pp || "").trim();
@@ -7684,7 +7701,8 @@
             pp: master.pp || childPp,
             uom: normalizeDownstreamUom(master.uom || child.uom || ""),
             status: master.status || child.status || "Pending",
-            qty: getOrderCheckComponentQty(child.qty, 1)
+            qty: getOrderCheckComponentQty(child.qty, 1),
+            supplyType: child.type || "Mã thay thế"
           });
         });
       }
@@ -7723,14 +7741,16 @@
         components.forEach(component => {
           const availableBefore = Number(availableMap.get(component.key)) || 0;
           const requiredQty = allocatedUnits * component.qty;
+          const availableQty = Math.min(requiredQty, Math.max(0, availableBefore));
           const nextAvailable = availableBefore - requiredQty;
           availableMap.set(component.key, nextAvailable);
           allocations.push({
             ...component,
             requiredQty,
-            availableQty: availableBefore,
-            shortageQty: Math.max(0, requiredQty - Math.max(0, availableBefore)),
-            priority: option.priority
+            availableQty,
+            shortageQty: requiredQty - availableQty,
+            priority: option.priority,
+            supplyType: component.supplyType || (optionIndex === 0 ? "Mã chính" : "Mã thay thế")
           });
         });
         remainingUnits -= allocatedUnits;
@@ -7787,41 +7807,68 @@
         if (groupKey && !hardwareMap.has(groupKey)) hardwareMap.set(groupKey, item);
       });
 
+      const productMeta = new Map();
+      checkItems.forEach((orderItem, index) => {
+        const productCode = String(orderItem.productCode || "").trim();
+        const productKey = productCode.toLowerCase();
+        if (!productMeta.has(productKey)) {
+          productMeta.set(productKey, {
+            productCode: productCode || "-",
+            productName: String(orderItem.productName || "").trim() || "-",
+            productQty: 0,
+            productIndex: index
+          });
+        }
+        productMeta.get(productKey).productQty += Number(orderItem.qty) || 0;
+      });
+
       const rows = new Map();
+      let hardwareSequence = 0;
       checkItems.forEach(orderItem => {
-        const productCode = String(orderItem.productCode || "").trim().toLowerCase();
+        const productKey = String(orderItem.productCode || "").trim().toLowerCase();
+        const product = productMeta.get(productKey) || { productCode: "-", productName: "-", productQty: 0, productIndex: 0 };
         const orderQty = Number(orderItem.qty) || 0;
-        bomLines.filter(line => line.parent.toLowerCase() === productCode).forEach(bom => {
+        bomLines.filter(line => line.parent.toLowerCase() === productKey).forEach(bom => {
           const demandUnits = orderQty * (Number(bom.qty) || 0);
           if (demandUnits <= 0) return;
           const allocations = allocateOrderCheckDemandByPriority(bom, demandUnits, availableMap, hardwareCatalog);
           allocations.forEach(allocation => {
             const groupKey = allocation.key || getOrderCheckGroupKey(allocation);
             if (!groupKey) return;
+            const priority = getOrderCheckPriorityNumber(allocation.priority, 1);
+            const rowKey = `${productKey}|${priority}|${groupKey}`;
             const master = hardwareMap.get(groupKey) || {};
-            if (!rows.has(groupKey)) {
-              rows.set(groupKey, {
-                key: groupKey,
+            if (!rows.has(rowKey)) {
+              rows.set(rowKey, {
+                key: rowKey,
+                productCode: product.productCode,
+                productName: product.productName,
+                productQty: product.productQty,
+                productIndex: product.productIndex,
                 name: master.name || allocation.name || "-",
                 fw: master.fw || allocation.fw || "-",
                 pp: master.pp || allocation.pp || "-",
+                priority,
+                supplyType: allocation.supplyType || (priority === 1 ? "Mã chính" : "Mã thay thế"),
                 uom: normalizeDownstreamUom(master.uom || allocation.uom || "-"),
                 requiredQty: 0,
-                availableQty: allocation.availableQty || 0,
-                shortageQty: 0
+                availableQty: 0,
+                shortageQty: 0,
+                hardwareSequence: hardwareSequence++
               });
             }
-            const row = rows.get(groupKey);
+            const row = rows.get(rowKey);
             row.requiredQty += Number(allocation.requiredQty) || 0;
+            row.availableQty += Number(allocation.availableQty) || 0;
             row.shortageQty += Number(allocation.shortageQty) || 0;
-            row.availableQty = Math.min(Number(row.availableQty) || 0, Number(allocation.availableQty) || 0);
           });
         });
       });
 
       return Array.from(rows.values()).sort((a, b) => {
-        if (b.shortageQty !== a.shortageQty) return b.shortageQty - a.shortageQty;
-        return String(a.pp || a.fw || a.name).localeCompare(String(b.pp || b.fw || b.name), "vi", { sensitivity: "base" });
+        if (a.productIndex !== b.productIndex) return a.productIndex - b.productIndex;
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        return a.hardwareSequence - b.hardwareSequence;
       });
     }
 
@@ -7857,25 +7904,33 @@
         ? buildWorkOrderCheckRows(orderCheckContext.workOrderNo)
         : buildOrderCheckRows(getSelectedOrderCheckIndexes());
       if (orderCheckContext.type !== "workOrder" && !getSelectedOrderCheckIndexes().length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Vui lòng chọn ít nhất một đơn hàng.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Vui lòng chọn ít nhất một đơn hàng.</td></tr>`;
         return;
       }
       if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Không tìm thấy BOM cho dữ liệu đã chọn.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Không tìm thấy BOM cho dữ liệu đã chọn.</td></tr>`;
         return;
       }
-      tbody.innerHTML = rows.map(row => `
-        <tr>
-          <td>${renderHardwarePreviewBox(row.pp)}</td>
-          <td>${row.name}</td>
-          <td>${row.fw}</td>
-          <td>${row.pp}</td>
-          <td>${row.uom}</td>
-          <td>${row.requiredQty.toLocaleString()}</td>
-          <td>${row.availableQty.toLocaleString()}</td>
-          <td>${row.shortageQty > 0 ? `<span class="badge red">${row.shortageQty.toLocaleString()}</span>` : `<span class="badge green">0</span>`}</td>
-        </tr>
-      `).join("");
+      let currentProduct = "";
+      tbody.innerHTML = rows.map(row => {
+        const productKey = String(row.productCode || "").toLowerCase();
+        const productHeader = productKey !== currentProduct
+          ? `<tr class="order-check-product-row"><td colspan="9">SẢN PHẨM: ${row.productCode} — ${row.productName} | Số lượng sản xuất: ${row.productQty.toLocaleString()}</td></tr>`
+          : "";
+        currentProduct = productKey;
+        return `${productHeader}
+          <tr>
+            <td>${renderHardwarePreviewBox(row.pp)}</td>
+            <td>${row.name}</td>
+            <td>${row.fw}</td>
+            <td>${row.pp}</td>
+            <td><span class="badge ${row.priority === 1 ? "green" : "orange"}">${row.supplyType} — Ưu tiên ${row.priority}</span></td>
+            <td>${row.uom}</td>
+            <td>${row.requiredQty.toLocaleString()}</td>
+            <td>${row.availableQty.toLocaleString()}</td>
+            <td>${row.shortageQty > 0 ? `<span class="badge red">${row.shortageQty.toLocaleString()}</span>` : `<span class="badge green">0</span>`}</td>
+          </tr>`;
+      }).join("");
     }
 
     function refreshOpenOrderCheckResults() {
