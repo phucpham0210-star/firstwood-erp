@@ -1054,9 +1054,16 @@
 
     .bom-product-meta div {
       display: grid;
-      grid-template-columns: 128px minmax(0, 1fr);
-      column-gap: 8px;
+      grid-template-columns: 108px minmax(0, 1fr);
+      column-gap: 6px;
       align-items: baseline;
+    }
+
+    .bom-product-meta strong {
+      min-width: 0;
+      color: inherit;
+      font: inherit;
+      white-space: nowrap;
     }
 
     .bom-product-meta span {
@@ -2109,7 +2116,7 @@
 
       <section class="table-shell" data-catalog-panel="product" aria-label="Bảng dữ liệu sản phẩm">
         <div class="table-wrap">
-          <table data-product-table data-status-column="11" data-status-options="Approved,Pending,Defective,Production,Other" data-filter-columns='[{"label":"Mã sản phẩm","columns":[1]},{"label":"Tên sản phẩm","columns":[2]},{"label":"Nguyên liệu","columns":[3]},{"label":"Kích thước sản phẩm","columns":[4,5,6]},{"label":"Kích thước đóng gói","columns":[7,8,9]},{"label":"Trạng thái","columns":[11]}]'>
+          <table data-product-table data-status-column="13" data-status-options="Approved,Pending,Defective,Production,Other" data-filter-columns='[{"label":"Mã sản phẩm","columns":[1]},{"label":"Tên sản phẩm","columns":[2]},{"label":"Nguyên liệu","columns":[3]},{"label":"Kích thước sản phẩm","columns":[4,5,6]},{"label":"Kích thước đóng gói","columns":[7,8,9]},{"label":"Trạng thái","columns":[13]}]'>
             <thead>
               <tr>
                 <th rowspan="2">Hình ảnh<span>Preview</span></th>
@@ -2119,6 +2126,8 @@
                 <th colspan="3">Kích thước sản phẩm<span>mm</span></th>
                 <th colspan="3">Kích thước đóng gói<span>mm</span></th>
                 <th rowspan="2">CBM<span>m3</span></th>
+                <th rowspan="2">NW</th>
+                <th rowspan="2">GW</th>
                 <th rowspan="2">Trạng Thái<span>Status</span></th>
                 <th rowspan="2">Ghi Chú<span>Remarks</span></th>
                 <th rowspan="2">Thao tác<span>Action</span></th>
@@ -3332,6 +3341,7 @@
       renderShipmentItemsTable({ refreshFilters: false, syncFilters: false, applyFilters: false });
       renderOrderCards();
       renderOrderItemsTable();
+      syncBomProductCardsFromSheet1();
       setSheet2VisibleCount(getSheet2VisibleCountFromDom());
       applyUiLanguage();
       showToast(currentUiLanguage === "en" ? "Interface switched to English." : "Đã chuyển giao diện sang tiếng Việt.");
@@ -4492,7 +4502,7 @@
 
     function repairSheet1VietnameseText() {
       document.querySelectorAll("[data-product-table] tbody tr").forEach((row) => {
-        repairCellVietnamese(row.cells[12]);
+        repairCellVietnamese(row.cells[14]);
       });
       document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => {
         repairCellVietnamese(row.cells[8], { status: true });
@@ -4511,6 +4521,21 @@
       document.querySelectorAll("[data-bom-body] tr:not([data-bom-entry-row])").forEach((row) => {
         const cell = row.cells[6];
         if (cell) cell.textContent = normalizeDownstreamUom(cell.innerText);
+      });
+    }
+
+    function ensureProductWeightCells() {
+      document.querySelectorAll("[data-product-table] tbody tr").forEach((row) => {
+        if (row.querySelector('[data-product-weight="nw"]') && row.querySelector('[data-product-weight="gw"]')) return;
+        const statusCell = row.querySelector('[data-editable="status"]');
+        if (!statusCell) return;
+        ["nw", "gw"].forEach((weightType) => {
+          const cell = document.createElement("td");
+          cell.dataset.editable = "number";
+          cell.dataset.productWeight = weightType;
+          cell.textContent = "-";
+          row.insertBefore(cell, statusCell);
+        });
       });
     }
 
@@ -4811,6 +4836,16 @@
       if (!rawCode) return [];
       return ["jpg", "jpeg", "png", "webp"]
         .map((ext) => `${PRODUCT_PREVIEW_FOLDER}/${encodeURIComponent(`${rawCode}.${ext}`)}`);
+    }
+
+    function getProductPreviewExcelUrl(productCode) {
+      const previewPath = getProductPreviewCandidates(productCode)[0];
+      if (!previewPath) return "";
+      try {
+        return new URL(previewPath, window.location.href).href;
+      } catch (error) {
+        return previewPath;
+      }
     }
 
     function handleHardwarePreviewError(img) {
@@ -5528,7 +5563,9 @@
         code: row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "",
         name: row.cells[2]?.querySelector(".item-name")?.innerText.replace(/\s+/g, " ").trim() || row.cells[2]?.innerText.replace(/\s+/g, " ").trim() || "",
         material: row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "",
-        pack: [row.cells[7], row.cells[8], row.cells[9]].map((cell) => cell?.innerText.replace(/\s+/g, " ").trim() || "").filter(Boolean).join(" x ")
+        pack: [row.cells[7], row.cells[8], row.cells[9]].map((cell) => cell?.innerText.replace(/\s+/g, " ").trim() || "").filter(Boolean).join(" x "),
+        nw: row.cells[11]?.innerText.replace(/\s+/g, " ").trim() || "",
+        gw: row.cells[12]?.innerText.replace(/\s+/g, " ").trim() || ""
       })).filter((item) => item.code);
     }
 
@@ -5544,8 +5581,10 @@
           <div class="bom-product-code">${product.code}</div>
           <div class="bom-product-name">${product.name || "-"}</div>
           <div class="bom-product-meta">
-            <div><span>Nguyên liệu</span>${product.material || "-"}</div>
-            <div><span>Kích thước đóng gói</span>${product.pack || "-"}</div>
+            <div><span>${uiText("Material", "Nguyên liệu")}</span><strong>${product.material || "-"}</strong></div>
+            <div><span>${uiText("Packing size", "Kích thước đóng gói")}</span><strong>${product.pack || "-"}</strong></div>
+            <div><span>NW</span><strong>${product.nw || "-"}</strong></div>
+            <div><span>GW</span><strong>${product.gw || "-"}</strong></div>
           </div>
         </div>
       `;
@@ -7021,7 +7060,7 @@
             if (row.matches("[data-generic-entry-row]") || row.matches(".bom-entry-row")) return false;
             const codeText = row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
             const nameText = (row.cells[2]?.querySelector(".item-name")?.innerText || row.cells[2]?.innerText).replace(/\s+/g, " ").trim();
-            const statusText = row.cells[11]?.innerText.replace(/\s+/g, " ").trim();
+            const statusText = row.cells[13]?.innerText.replace(/\s+/g, " ").trim();
 
             if (field !== 'code' && !matchesSheet1Filter(codeText, sheet1ProductFilters.code)) return false;
             if (field !== 'name' && !matchesSheet1Filter(nameText, sheet1ProductFilters.name)) return false;
@@ -7031,7 +7070,7 @@
           .map(row => {
             if (field === 'code') return row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
             if (field === 'name') return (row.cells[2]?.querySelector(".item-name")?.innerText || row.cells[2]?.innerText).replace(/\s+/g, " ").trim();
-            if (field === 'status') return row.cells[11]?.innerText.replace(/\s+/g, " ").trim();
+            if (field === 'status') return row.cells[13]?.innerText.replace(/\s+/g, " ").trim();
             return "";
           })
           .filter(Boolean)
@@ -7116,7 +7155,7 @@
           }
           const codeText = row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
           const nameText = (row.cells[2]?.querySelector(".item-name")?.innerText || row.cells[2]?.innerText).replace(/\s+/g, " ").trim();
-          const statusText = row.cells[11]?.innerText.replace(/\s+/g, " ").trim();
+          const statusText = row.cells[13]?.innerText.replace(/\s+/g, " ").trim();
 
           const matchCode = matchesSheet1Filter(codeText, sheet1ProductFilters.code);
           const matchName = matchesSheet1Filter(nameText, sheet1ProductFilters.name);
@@ -9590,20 +9629,54 @@
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`;
     }
 
+    function loadImageForWorkbookViaCanvas(imageUrl, fallbackName) {
+      return new Promise((resolve) => {
+        const image = new Image();
+        image.onload = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth || image.width || 1;
+            canvas.height = image.naturalHeight || image.height || 1;
+            const context = canvas.getContext("2d");
+            context.drawImage(image, 0, 0);
+            canvas.toBlob(async (blob) => {
+              if (!blob) {
+                resolve(null);
+                return;
+              }
+              resolve({
+                bytes: new Uint8Array(await blob.arrayBuffer()),
+                contentType: "image/png",
+                extension: "png",
+                name: fallbackName
+              });
+            }, "image/png");
+          } catch (error) {
+            resolve(null);
+          }
+        };
+        image.onerror = () => resolve(null);
+        image.src = imageUrl;
+      });
+    }
+
     async function fetchImageForWorkbook(imageUrl, fallbackName) {
       if (!imageUrl) return null;
       try {
         const response = await fetch(imageUrl);
-        if (!response.ok) return null;
-        const blob = await response.blob();
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        const contentType = blob.type || (imageUrl.toLowerCase().includes(".png") ? "image/png" : "image/jpeg");
-        const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-        return { bytes, contentType, extension, name: fallbackName };
+        if (response.ok) {
+          const blob = await response.blob();
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          const contentType = blob.type || (imageUrl.toLowerCase().includes(".png") ? "image/png" : "image/jpeg");
+          const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+          return { bytes, contentType, extension, name: fallbackName };
+        }
       } catch (error) {
-        console.warn("Không tải được ảnh Excel:", imageUrl, error);
-        return null;
+        // Chế độ mở app bằng file:// có thể chặn fetch; dùng ảnh đã tải qua thẻ img ở bước dưới.
       }
+      const canvasImage = await loadImageForWorkbookViaCanvas(imageUrl, fallbackName);
+      if (!canvasImage) console.warn("Không tải được ảnh Excel:", imageUrl);
+      return canvasImage;
     }
 
     async function writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet = new Map()) {
@@ -9687,8 +9760,10 @@
         packW: text(8),
         packH: text(9),
         cbm: text(10),
-        status: text(11),
-        remarks: text(12)
+        nw: text(11),
+        gw: text(12),
+        status: text(13),
+        remarks: text(14)
       };
     }
 
@@ -9779,31 +9854,49 @@
         ["BÁO CÁO SHEET 4 - BOM STANDARD"],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
         [],
-        ["Mã sản phẩm / Product code", "Tên sản phẩm / Product name", "Nguyên liệu / Material", "Kích thước SP / Product size", "Kích thước đóng gói / Packing size", "CBM", "Trạng thái / Status", "Số dòng BOM / BOM lines"]
+        ["Hình ảnh sản phẩm / Product image", "Mã sản phẩm / Product code", "Tên sản phẩm / Product name", "Nguyên liệu / Material", "Kích thước SP / Product size", "Kích thước đóng gói / Packing size", "CBM", "NW", "GW", "Trạng thái / Status", "Số dòng BOM / BOM lines"]
       ];
 
       products.forEach((product) => {
         const detail = product.detail;
         summaryRows.push([
+          "",
           detail.code || product.code,
           detail.name || product.name || "",
           detail.material || "",
           [detail.productL, detail.productW, detail.productH].filter(Boolean).join(" x "),
           [detail.packL, detail.packW, detail.packH].filter(Boolean).join(" x "),
           detail.cbm || "",
+          detail.nw || "",
+          detail.gw || "",
           detail.status || "",
           product.rows.length
         ]);
       });
 
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+      const summaryImageAnchors = [];
       summarySheet["!cols"] = [
-        { wch: 24 }, { wch: 34 }, { wch: 20 }, { wch: 24 },
-        { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 14 }
+        { wch: 20 }, { wch: 24 }, { wch: 34 }, { wch: 20 }, { wch: 24 },
+        { wch: 24 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 14 }
       ];
-      summarySheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
-      summarySheet["!autofilter"] = { ref: `A4:H${summaryRows.length}` };
-      XLSX.utils.book_append_sheet(workbook, summarySheet, "Danh sach ma hang");
+      summarySheet["!rows"] = summaryRows.map((_, rowIndex) => rowIndex >= 4 ? { hpt: 76 } : {});
+      summarySheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
+      summarySheet["!autofilter"] = { ref: `A4:K${summaryRows.length}` };
+      products.forEach((product, productOffset) => {
+        const productCode = product.detail.code || product.code;
+        const imageUrl = getProductPreviewExcelUrl(productCode);
+        if (!imageUrl) return;
+        summaryImageAnchors.push({
+          row: productOffset + 4,
+          col: 0,
+          imageUrl,
+          name: productCode || product.name || "Product image"
+        });
+      });
+      const summarySheetName = "Danh sach ma hang";
+      XLSX.utils.book_append_sheet(workbook, summarySheet, summarySheetName);
+      if (summaryImageAnchors.length) sheetImageAnchors.set(summarySheetName, summaryImageAnchors);
 
       const bomHeaders = [
         "Hình ảnh / Preview",
@@ -9823,10 +9916,13 @@
           [`BÁO CÁO BOM / BOM REPORT: ${detail.code || product.code}`],
           ["Mã sản phẩm / Product code", detail.code || product.code],
           ["Tên sản phẩm / Product name", detail.name || product.name || ""],
+          ["Hình ảnh sản phẩm / Product image", ""],
           ["Nguyên liệu / Material", detail.material || ""],
           ["Kích thước sản phẩm / Product size", [detail.productL, detail.productW, detail.productH].filter(Boolean).join(" x ")],
           ["Kích thước đóng gói / Packing size", [detail.packL, detail.packW, detail.packH].filter(Boolean).join(" x ")],
           ["CBM", detail.cbm || ""],
+          ["NW", detail.nw || ""],
+          ["GW", detail.gw || ""],
           ["Trạng thái / Status", detail.status || ""],
           ["Ghi chú / Remarks", detail.remarks || ""],
           [],
@@ -9841,15 +9937,24 @@
           { wch: 20 }, { wch: 34 }, { wch: 22 }, { wch: 22 }, { wch: 14 },
           { wch: 20 }, { wch: 12 }, { wch: 22 }, { wch: 18 }
         ];
-        worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex >= 11 ? { hpt: 76 } : {});
+        worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex === 3 || rowIndex >= 14 ? { hpt: 76 } : {});
         worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: bomHeaders.length - 1 } }];
-        worksheet["!autofilter"] = { ref: `A11:I${rows.length}` };
+        worksheet["!autofilter"] = { ref: `A14:I${rows.length}` };
+        const productImageUrl = getProductPreviewExcelUrl(detail.code || product.code);
+        if (productImageUrl) {
+          imageAnchors.push({
+            row: 3,
+            col: 1,
+            imageUrl: productImageUrl,
+            name: detail.code || product.code || product.name || "Product image"
+          });
+        }
         product.rows.forEach((row, itemOffset) => {
           const ppCode = getSheet2RowText(row, 3);
           const imageUrl = getHardwarePreviewExcelUrl(ppCode);
           if (!imageUrl) return;
           imageAnchors.push({
-            row: itemOffset + 11,
+            row: itemOffset + 14,
             col: 0,
             imageUrl,
             name: ppCode || getSheet2RowText(row, 2) || getSheet2RowText(row, 1) || "Preview"
@@ -10231,6 +10336,79 @@
       }
     }
 
+    async function exportSheet2HardwareWorkbook(table = document.querySelector("[data-hardware-table]")) {
+      if (typeof XLSX === "undefined") {
+        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
+        return;
+      }
+      const sourceRows = Array.from(table?.tBodies?.[0]?.rows || [])
+        .filter((row) => !row.classList.contains("is-hidden"));
+      if (!sourceRows.length) {
+        showToast("Sheet 2 không có dữ liệu đang hiển thị để xuất.");
+        return;
+      }
+
+      const headers = [
+        "Hình ảnh / Preview",
+        "Tên hàng / Item name",
+        "Mã phần cứng FW / FW hardware code",
+        "Mã phần cứng PP / PP hardware code",
+        "Quy cách / Specification",
+        "Vật liệu / Material",
+        "Đơn vị / UOM",
+        "Nhà cung cấp / Supplier",
+        "Trạng thái / Status",
+        "Loại / Type",
+        "Sản phẩm sử dụng / Used by products",
+        "Ghi chú / Remarks"
+      ];
+      const rows = [headers];
+      sourceRows.forEach((row) => {
+        rows.push(headers.map((_, columnIndex) => columnIndex === 0
+          ? ""
+          : String(row.cells[columnIndex]?.innerText || "").replace(/\s+/g, " ").trim()));
+      });
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const sheetName = "Sheet 2 - Ma phan cung";
+      const imageAnchors = [];
+      worksheet["!cols"] = [
+        { wch: 20 }, { wch: 34 }, { wch: 22 }, { wch: 22 },
+        { wch: 26 }, { wch: 20 }, { wch: 12 }, { wch: 22 },
+        { wch: 18 }, { wch: 18 }, { wch: 28 }, { wch: 32 }
+      ];
+      worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex > 0 ? { hpt: 76 } : { hpt: 30 });
+      worksheet["!autofilter"] = { ref: `A1:L${rows.length}` };
+
+      sourceRows.forEach((row, rowOffset) => {
+        const ppCode = String(row.cells[3]?.innerText || "").replace(/\s+/g, " ").trim();
+        const imageUrl = getHardwarePreviewExcelUrl(ppCode);
+        if (!imageUrl) return;
+        imageAnchors.push({
+          row: rowOffset + 1,
+          col: 0,
+          imageUrl,
+          name: ppCode || String(row.cells[2]?.innerText || row.cells[1]?.innerText || "Preview").trim()
+        });
+      });
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      const anchorsBySheet = new Map([[sheetName, imageAnchors]]);
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const filename = `firstwood-sheet2-hardware-${dateStamp}.xlsx`;
+      try {
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, anchorsBySheet);
+        showToast(hasEmbeddedImages
+          ? "Đã xuất Excel Sheet 2 kèm hình ảnh."
+          : "Đã xuất Excel Sheet 2 nhưng không tìm thấy ảnh phù hợp để nhúng.");
+      } catch (error) {
+        console.warn("Không nhúng được ảnh vào Excel Sheet 2:", error);
+        writeWorkbookXlsx(workbook, filename);
+        showToast("Đã xuất Excel Sheet 2 nhưng chưa nhúng được ảnh.");
+      }
+    }
+
     function exportCurrentTable() {
       if (getCurrentSection()?.id === "sheet-bom") {
         openSheet2ExportModal();
@@ -10241,6 +10419,10 @@
         return;
       }
       const table = getCurrentTable();
+      if (table?.matches("[data-hardware-table]")) {
+        exportSheet2HardwareWorkbook(table);
+        return;
+      }
       const rows = Array.from(table.querySelectorAll("tr")).filter((row) => !row.classList.contains("is-hidden"));
       const csv = rows.map((row) => Array.from(row.cells).map((cell) => csvEscape(cell.innerText)).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -11214,6 +11396,8 @@
         <td data-editable="number" data-dim="pack-w">${data.packWidth || "-"}</td>
         <td data-editable="number" data-dim="pack-h">${data.packHeight || "-"}</td>
         <td data-cbm>${formatCbm(data.packLength, data.packWidth, data.packHeight)}</td>
+        <td data-editable="number" data-product-weight="nw">${data.nw || "-"}</td>
+        <td data-editable="number" data-product-weight="gw">${data.gw || "-"}</td>
         <td data-editable="status"><span class="badge ${statusClass}">${data.status}</span></td>
         <td data-editable="text">${data.remarks || "Nhập thủ công"}</td>
         <td><div class="row-actions"><button class="mini-action primary" data-row-edit>Sửa</button><button class="mini-action" data-row-copy>Copy</button><button class="mini-action danger" data-row-delete>Xóa</button></div></td>
@@ -11517,6 +11701,8 @@
         <td data-editable="number" data-dim="pack-w">-</td>
         <td data-editable="number" data-dim="pack-h">-</td>
         <td data-cbm>0.000000</td>
+        <td data-editable="number" data-product-weight="nw">-</td>
+        <td data-editable="number" data-product-weight="gw">-</td>
         <td data-editable="status"><span class="badge green">Approved</span></td>
         <td data-editable="text">Đồng bộ từ Đơn hàng</td>
         <td><div class="row-actions"><button class="mini-action primary" data-row-edit>Sửa</button><button class="mini-action danger" data-row-delete>Xóa</button></div></td>
@@ -13037,6 +13223,7 @@
       tbody.innerHTML = rowsHtml.join("");
       if (entryRow) tbody.appendChild(entryRow);
       if (selector === "[data-hardware-table]") ensureHardwareUsageCells();
+      if (selector === "[data-product-table]") ensureProductWeightCells();
     }
 
     function buildAppDataPayload() {
@@ -13278,6 +13465,7 @@
       isApplyingRemoteData = true;
       try {
         replaceTableRows("[data-product-table]", payload.productRows);
+        ensureProductWeightCells();
         replaceTableRows("[data-hardware-table]", payload.hardwareRows);
         replaceTableRows("[data-bom-body]", payload.bomRows, "[data-bom-entry-row]");
         if (payload.productionHardwareSettings && typeof payload.productionHardwareSettings === "object") productionHardwareSettings = payload.productionHardwareSettings;
