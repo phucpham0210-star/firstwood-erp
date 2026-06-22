@@ -8,6 +8,7 @@
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
   <script src="preview-hardware-pp-manifest.js"></script>
+  <script src="preview-images-data.js"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -9607,16 +9608,16 @@
         const id = index + 1;
         const name = xmlAttr(image.name || `Preview ${id}`);
         return `
-  <xdr:twoCellAnchor editAs="oneCell">
+  <xdr:oneCellAnchor>
     <xdr:from><xdr:col>${image.col}</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>${image.row}</xdr:row><xdr:rowOff>57150</xdr:rowOff></xdr:from>
-    <xdr:to><xdr:col>${image.col + 1}</xdr:col><xdr:colOff>-95250</xdr:colOff><xdr:row>${image.row + 1}</xdr:row><xdr:rowOff>-57150</xdr:rowOff></xdr:to>
+    <xdr:ext cx="762000" cy="762000"/>
     <xdr:pic>
-      <xdr:nvPicPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvPicPr/></xdr:nvPicPr>
+      <xdr:nvPicPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>
       <xdr:blipFill><a:blip r:embed="rId${id}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
-      <xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+      <xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="762000" cy="762000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
     </xdr:pic>
     <xdr:clientData/>
-  </xdr:twoCellAnchor>`;
+  </xdr:oneCellAnchor>`;
       }).join("");
       return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors}
@@ -9635,10 +9636,16 @@
         image.onload = () => {
           try {
             const canvas = document.createElement("canvas");
-            canvas.width = image.naturalWidth || image.width || 1;
-            canvas.height = image.naturalHeight || image.height || 1;
+            const sourceWidth = image.naturalWidth || image.width || 1;
+            const sourceHeight = image.naturalHeight || image.height || 1;
+            const canvasSize = Math.max(sourceWidth, sourceHeight);
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
             const context = canvas.getContext("2d");
-            context.drawImage(image, 0, 0);
+            context.clearRect(0, 0, canvasSize, canvasSize);
+            const drawX = (canvasSize - sourceWidth) / 2;
+            const drawY = (canvasSize - sourceHeight) / 2;
+            context.drawImage(image, drawX, drawY, sourceWidth, sourceHeight);
             canvas.toBlob(async (blob) => {
               if (!blob) {
                 resolve(null);
@@ -9660,20 +9667,79 @@
       });
     }
 
-    async function fetchImageForWorkbook(imageUrl, fallbackName) {
-      if (!imageUrl) return null;
+    function getWorkbookRemoteImageUrl(imageUrl) {
+      const rawBase = "https://raw.githubusercontent.com/phucpham0210-star/firstwood-erp/main/";
       try {
-        const response = await fetch(imageUrl);
-        if (response.ok) {
-          const blob = await response.blob();
-          const bytes = new Uint8Array(await blob.arrayBuffer());
-          const contentType = blob.type || (imageUrl.toLowerCase().includes(".png") ? "image/png" : "image/jpeg");
-          const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-          return { bytes, contentType, extension, name: fallbackName };
+        const pathname = decodeURIComponent(new URL(imageUrl, window.location.href).pathname).replace(/\\/g, "/");
+        const folders = [HARDWARE_PREVIEW_FOLDER, PRODUCT_PREVIEW_FOLDER];
+        for (const folder of folders) {
+          const marker = `/${folder}/`;
+          const markerIndex = pathname.toLowerCase().indexOf(marker.toLowerCase());
+          if (markerIndex < 0) continue;
+          const relativePath = pathname.slice(markerIndex + 1);
+          return rawBase + relativePath.split("/").map(encodeURIComponent).join("/");
         }
       } catch (error) {
-        // Chế độ mở app bằng file:// có thể chặn fetch; dùng ảnh đã tải qua thẻ img ở bước dưới.
+        return "";
       }
+      return "";
+    }
+
+    function getBundledWorkbookImage(imageUrl, fallbackName) {
+      const imageData = window.PREVIEW_IMAGE_DATA;
+      if (!imageUrl || !imageData || typeof imageData !== "object") return null;
+      try {
+        const pathname = decodeURIComponent(new URL(imageUrl, window.location.href).pathname).replace(/\\/g, "/");
+        const folders = [HARDWARE_PREVIEW_FOLDER, PRODUCT_PREVIEW_FOLDER];
+        for (const folder of folders) {
+          const marker = `/${folder}/`;
+          const markerIndex = pathname.toLowerCase().indexOf(marker.toLowerCase());
+          if (markerIndex < 0) continue;
+          const key = pathname.slice(markerIndex + 1);
+          const dataUrl = imageData[key];
+          if (!dataUrl) return null;
+          const match = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+          if (!match) return null;
+          const binary = atob(match[2]);
+          const bytes = new Uint8Array(binary.length);
+          for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+          const contentType = match[1] || "image/jpeg";
+          const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+          return { bytes, contentType, extension, name: fallbackName, dataUrl };
+        }
+      } catch (error) {
+        return null;
+      }
+      return null;
+    }
+
+    async function tryFetchWorkbookImage(imageUrl, fallbackName) {
+      if (!imageUrl) return null;
+      try {
+        const response = await fetch(imageUrl, { cache: "force-cache" });
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const contentType = blob.type || (imageUrl.toLowerCase().includes(".png") ? "image/png" : "image/jpeg");
+        const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+        return { bytes, contentType, extension, name: fallbackName };
+      } catch (error) {
+        return null;
+      }
+    }
+
+    async function fetchImageForWorkbook(imageUrl, fallbackName) {
+      if (!imageUrl) return null;
+      const bundledImage = getBundledWorkbookImage(imageUrl, fallbackName);
+      if (bundledImage) {
+        const normalizedImage = await loadImageForWorkbookViaCanvas(bundledImage.dataUrl, fallbackName);
+        return normalizedImage || bundledImage;
+      }
+      const directImage = await tryFetchWorkbookImage(imageUrl, fallbackName);
+      if (directImage) return directImage;
+      const remoteImageUrl = getWorkbookRemoteImageUrl(imageUrl);
+      const remoteImage = await tryFetchWorkbookImage(remoteImageUrl, fallbackName);
+      if (remoteImage) return remoteImage;
       const canvasImage = await loadImageForWorkbookViaCanvas(imageUrl, fallbackName);
       if (!canvasImage) console.warn("Không tải được ảnh Excel:", imageUrl);
       return canvasImage;
@@ -9850,6 +9916,11 @@
       const workbook = XLSX.utils.book_new();
       const usedNames = new Set();
       const sheetImageAnchors = new Map();
+      const detailSheetNames = new Map();
+      products.forEach((product) => {
+        const detail = product.detail;
+        detailSheetNames.set(product.code, makeExcelSheetName(detail.code || product.code, "BOM", usedNames));
+      });
       const summaryRows = [
         ["BÁO CÁO SHEET 4 - BOM STANDARD"],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
@@ -9885,6 +9956,17 @@
       summarySheet["!autofilter"] = { ref: `A4:K${summaryRows.length}` };
       products.forEach((product, productOffset) => {
         const productCode = product.detail.code || product.code;
+        const detailSheetName = detailSheetNames.get(product.code);
+        const productCodeAddress = XLSX.utils.encode_cell({ r: productOffset + 4, c: 1 });
+        if (summarySheet[productCodeAddress] && detailSheetName) {
+          summarySheet[productCodeAddress].l = {
+            Target: `#'${detailSheetName.replace(/'/g, "''")}'!A1`,
+            Tooltip: "Mở sheet BOM chi tiết của mã sản phẩm này"
+          };
+          setCellStyle(summarySheet, productCodeAddress, {
+            font: { color: { rgb: "0563C1" }, underline: true, bold: true }
+          });
+        }
         const imageUrl = getProductPreviewExcelUrl(productCode);
         if (!imageUrl) return;
         summaryImageAnchors.push({
@@ -9931,7 +10013,7 @@
         product.rows.forEach((row) => rows.push(getSheet2BomRowExportValues(row)));
 
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
-        const sheetName = makeExcelSheetName(detail.code || product.code, "BOM", usedNames);
+        const sheetName = detailSheetNames.get(product.code);
         const imageAnchors = [];
         worksheet["!cols"] = [
           { wch: 20 }, { wch: 34 }, { wch: 22 }, { wch: 22 }, { wch: 14 },
