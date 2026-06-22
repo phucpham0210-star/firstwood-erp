@@ -186,6 +186,23 @@
       color: #ffffff;
     }
 
+    #orderCheckViewSwitch .order-check-view-btn {
+      min-width: 42px;
+      width: 42px;
+      padding: 0;
+    }
+
+    .order-check-view-btn svg {
+      width: 21px;
+      height: 21px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      pointer-events: none;
+    }
+
     .action-btn.success {
       border-color: rgba(38, 196, 107, 0.45);
       color: #dfffea;
@@ -2933,14 +2950,18 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="orderCheckTitle">
       <div class="modal-head">
         <div class="modal-title" id="orderCheckTitle">Kiểm Tra Vật Tư Đơn Hàng<span>Chọn đơn hàng và đối chiếu BOM với tồn kho khả dụng</span></div>
+        <div id="orderCheckViewSwitch" style="display:flex; gap:8px; margin-left:auto;">
+          <button class="action-btn order-check-view-btn" data-order-check-view="shortage" type="button" title="Gộp tổng" aria-label="Gộp toàn bộ phần cứng thành một danh sách">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h5l5 6h7"/><path d="M3 18h5l5-6"/><path d="m17 9 3 3-3 3"/></svg>
+          </button>
+          <button class="action-btn primary order-check-view-btn" data-order-check-view="product" type="button" title="Tách sản phẩm" aria-label="Tách danh sách phần cứng theo từng sản phẩm">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h7l5-6h5"/><path d="m17 3 3 3-3 3"/><path d="M10 12l5 6h5"/><path d="m17 15 3 3-3 3"/></svg>
+          </button>
+        </div>
         <button class="action-btn" data-close-modal="orderCheckModal" type="button">Close<span>Đóng</span></button>
       </div>
       <div class="modal-body" style="padding: 16px 0;">
         <div class="bom-copy-list" id="orderCheckOrderList" style="margin: 0 16px 14px;"></div>
-        <div id="orderCheckViewSwitch" style="display:flex; gap:8px; margin:0 16px 14px; flex-wrap:wrap;">
-          <button class="action-btn primary" data-order-check-view="product" type="button">Theo sản phẩm<span>By product</span></button>
-          <button class="action-btn" data-order-check-view="shortage" type="button">Tổng hợp thiếu<span>Shortage summary</span></button>
-        </div>
         <div class="table-shell compact" style="margin: 0; border-left: 0; border-right: 0; background: transparent;">
           <div class="table-wrap">
             <table id="orderCheckResultTable">
@@ -4496,6 +4517,26 @@
     function formatCbm(length, width, height) {
       const cbm = parseNumber(length) * parseNumber(width) * parseNumber(height) / 1000000000;
       return cbm ? cbm.toFixed(6) : "0.000000";
+    }
+
+    function getProductUnitCbm(productCode) {
+      const target = String(productCode || "").trim().toLowerCase();
+      if (!target) return 0;
+      const row = Array.from(document.querySelectorAll("[data-product-table] tbody tr"))
+        .find(item => String(item.cells[1]?.innerText || "").trim().toLowerCase() === target);
+      if (!row) return 0;
+      const savedCbm = parseNumber(row.cells[10]?.innerText);
+      if (savedCbm > 0) return savedCbm;
+      return parseNumber(row.cells[7]?.innerText)
+        * parseNumber(row.cells[8]?.innerText)
+        * parseNumber(row.cells[9]?.innerText) / 1000000000;
+    }
+
+    function formatTotalCbm(value) {
+      return (Number(value) || 0).toLocaleString("vi-VN", {
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 6
+      });
     }
 
     function statusClassFor(status) {
@@ -8037,7 +8078,8 @@
             orderNos: new Set(),
             statuses: new Set(),
             itemCount: 0,
-            qty: 0
+            qty: 0,
+            totalCbm: 0
           });
         }
         const summary = map.get(item.woNo);
@@ -8048,6 +8090,7 @@
         if (!item.isHeader) {
           summary.itemCount += 1;
           summary.qty += Number(item.qty) || 0;
+          summary.totalCbm += getProductUnitCbm(item.productCode) * (Number(item.qty) || 0);
         }
       });
       return Array.from(map.values());
@@ -9701,6 +9744,7 @@
 
     function getSheet2BomRowExportValues(row) {
       return [
+        "",
         getSheet2RowText(row, 1),
         getSheet2RowText(row, 2),
         getSheet2RowText(row, 3),
@@ -9712,7 +9756,7 @@
       ];
     }
 
-    function exportSheet2BomWorkbook(selectedCodes = getSelectedSheet2ExportCodes()) {
+    async function exportSheet2BomWorkbook(selectedCodes = getSelectedSheet2ExportCodes()) {
       if (typeof XLSX === "undefined") {
         showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
         return;
@@ -9730,6 +9774,7 @@
 
       const workbook = XLSX.utils.book_new();
       const usedNames = new Set();
+      const sheetImageAnchors = new Map();
       const summaryRows = [
         ["BÁO CÁO SHEET 4 - BOM STANDARD"],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
@@ -9761,6 +9806,7 @@
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Danh sach ma hang");
 
       const bomHeaders = [
+        "Hình ảnh / Preview",
         "Tên phần cứng / Hardware name",
         "Mã phần cứng FW / FW hardware code",
         "Mã phần cứng PP / PP hardware code",
@@ -9789,18 +9835,41 @@
         product.rows.forEach((row) => rows.push(getSheet2BomRowExportValues(row)));
 
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        const sheetName = makeExcelSheetName(detail.code || product.code, "BOM", usedNames);
+        const imageAnchors = [];
         worksheet["!cols"] = [
-          { wch: 34 }, { wch: 22 }, { wch: 22 }, { wch: 14 },
+          { wch: 20 }, { wch: 34 }, { wch: 22 }, { wch: 22 }, { wch: 14 },
           { wch: 20 }, { wch: 12 }, { wch: 22 }, { wch: 18 }
         ];
+        worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex >= 11 ? { hpt: 76 } : {});
         worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: bomHeaders.length - 1 } }];
-        worksheet["!autofilter"] = { ref: `A11:H${rows.length}` };
-        XLSX.utils.book_append_sheet(workbook, worksheet, makeExcelSheetName(detail.code || product.code, "BOM", usedNames));
+        worksheet["!autofilter"] = { ref: `A11:I${rows.length}` };
+        product.rows.forEach((row, itemOffset) => {
+          const ppCode = getSheet2RowText(row, 3);
+          const imageUrl = getHardwarePreviewExcelUrl(ppCode);
+          if (!imageUrl) return;
+          imageAnchors.push({
+            row: itemOffset + 11,
+            col: 0,
+            imageUrl,
+            name: ppCode || getSheet2RowText(row, 2) || getSheet2RowText(row, 1) || "Preview"
+          });
+        });
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        if (imageAnchors.length) sheetImageAnchors.set(sheetName, imageAnchors);
       });
 
       const dateStamp = new Date().toISOString().slice(0, 10);
-      writeWorkbookXlsx(workbook, `firstwood-sheet4-bom-standard-${dateStamp}.xlsx`);
-      showToast("Đã xuất Excel Sheet 4 theo các mã hàng đã chọn.");
+      try {
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, `firstwood-sheet4-bom-standard-${dateStamp}.xlsx`, sheetImageAnchors);
+        showToast(hasEmbeddedImages
+          ? "Đã xuất Excel Sheet 2 kèm hình ảnh."
+          : "Đã xuất Excel Sheet 2. Không tìm thấy ảnh phù hợp để nhúng.");
+      } catch (error) {
+        console.warn("Không nhúng được ảnh vào Excel Sheet 2:", error);
+        writeWorkbookXlsx(workbook, `firstwood-sheet4-bom-standard-${dateStamp}.xlsx`);
+        showToast("Đã xuất Excel Sheet 2 nhưng chưa nhúng được ảnh.");
+      }
     }
 
     function getShipmentReportStatus(shipment) {
@@ -10487,10 +10556,16 @@
         box.checked = shouldCheck;
       });
     });
-    document.getElementById("sheet2ExportRunBtn")?.addEventListener("click", () => {
+    document.getElementById("sheet2ExportRunBtn")?.addEventListener("click", async () => {
       const selectedCodes = getSelectedSheet2ExportCodes();
-      exportSheet2BomWorkbook(selectedCodes);
-      if (selectedCodes.length) closeModal("sheet2ExportModal");
+      const button = document.getElementById("sheet2ExportRunBtn");
+      if (button) button.disabled = true;
+      try {
+        await exportSheet2BomWorkbook(selectedCodes);
+        if (selectedCodes.length) closeModal("sheet2ExportModal");
+      } finally {
+        if (button) button.disabled = false;
+      }
     });
     document.getElementById("sheet3ExportSelectAllBtn")?.addEventListener("click", () => {
       const boxes = Array.from(document.querySelectorAll("#sheet3ExportShipmentList input[type='checkbox']"));
@@ -11533,6 +11608,10 @@
             <div class="shipment-meta-item">
               <span>Địa chỉ giao hàng</span>
               <div style="font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${addressText}">${addressText}</div>
+            </div>
+            <div class="shipment-meta-item" style="margin-top:8px;">
+              <span>Tổng CBM đơn hàng</span>
+              <div style="margin-top:2px; font-size:13px; font-weight:900; color:#62a2ff;">${formatTotalCbm(workOrder.totalCbm)} m³</div>
             </div>
             <div class="shipment-meta-item" style="margin-top:8px;">
               <span>Trạng thái</span>
