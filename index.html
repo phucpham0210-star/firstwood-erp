@@ -4305,7 +4305,10 @@
       const action = pendingConfirmAction;
       pendingConfirmAction = null;
       closeModal("confirmModal");
-      if (typeof action === "function") action();
+      if (typeof action === "function") {
+        action();
+        scheduleSaveAppData();
+      }
     }
 
     function setActiveNav(index) {
@@ -8093,18 +8096,93 @@
       openModal("orderCheckModal");
     };
 
-    function exportOrderCheckReport() {
-      const rows = Array.from(document.querySelectorAll("#orderCheckResultTable tr"));
-      const csv = rows.map(row => Array.from(row.cells).map(cell => csvEscape(cell.innerText)).join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+    async function exportOrderCheckReport() {
+      if (typeof XLSX === "undefined") {
+        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
+        return;
+      }
+      const bodyRows = Array.from(document.querySelectorAll("#orderCheckResultBody tr"));
+      const itemRows = bodyRows.filter((row) => !row.classList.contains("order-check-product-row") && row.cells.length >= 9);
+      if (!itemRows.length) {
+        showToast("Chưa có kết quả kiểm tra vật tư để xuất.");
+        return;
+      }
+
+      const headers = [
+        "Hình ảnh / Preview",
+        "Tên hàng / Item name",
+        "Mã phần cứng FW / FW hardware code",
+        "Mã phần cứng PP / PP hardware code",
+        "Thứ tự cấp / Issue priority",
+        "Đơn vị / UOM",
+        "Số lượng cần / Required qty",
+        "Số lượng khả dụng / Available qty",
+        "Số lượng thiếu / Shortage qty"
+      ];
+      const contextLabel = orderCheckContext.type === "workOrder"
+        ? `Lệnh sản xuất / Work order: ${orderCheckContext.workOrderNo || "-"}`
+        : "Đơn hàng đã chọn / Selected orders";
+      const rows = [
+        ["BÁO CÁO KIỂM TRA VẬT TƯ / MATERIAL CHECK REPORT"],
+        [contextLabel],
+        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        [],
+        headers
+      ];
+      const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
+      const imageAnchors = [];
+
+      bodyRows.forEach((row) => {
+        if (row.classList.contains("order-check-product-row")) {
+          const excelRowIndex = rows.length;
+          rows.push([repairVietnameseMojibake(row.innerText.replace(/\s+/g, " ").trim())]);
+          merges.push({ s: { r: excelRowIndex, c: 0 }, e: { r: excelRowIndex, c: 8 } });
+          return;
+        }
+        if (row.cells.length < 9) return;
+        const excelRowIndex = rows.length;
+        const values = [""];
+        for (let columnIndex = 1; columnIndex < 9; columnIndex += 1) {
+          const text = row.cells[columnIndex]?.innerText.replace(/\s+/g, " ").trim() || "";
+          values.push(repairVietnameseMojibake(text));
+        }
+        rows.push(values);
+        const ppCode = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
+        const imageUrl = getHardwarePreviewExcelUrl(ppCode);
+        if (imageUrl) {
+          imageAnchors.push({
+            row: excelRowIndex,
+            col: 0,
+            imageUrl,
+            name: ppCode || values[2] || values[1] || "Preview"
+          });
+        }
+      });
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const sheetName = "Kiem tra vat tu";
+      worksheet["!cols"] = [
+        { wch: 16 }, { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 28 },
+        { wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 18 }
+      ];
+      worksheet["!rows"] = rows.map((_, rowIndex) => imageAnchors.some((anchor) => anchor.row === rowIndex) ? { hpt: 70 } : {});
+      worksheet["!merges"] = merges;
+      worksheet["!autofilter"] = { ref: `A5:I${rows.length}` };
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
       const stamp = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `firstwood-order-material-check-${stamp}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-      showToast("Đã xuất báo cáo kiểm tra vật tư.");
+      const filename = `firstwood-order-material-check-${stamp}.xlsx`;
+      try {
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, new Map([[sheetName, imageAnchors]]));
+        showToast(hasEmbeddedImages
+          ? "Đã xuất báo cáo kiểm tra vật tư kèm hình ảnh."
+          : "Đã xuất báo cáo kiểm tra vật tư nhưng không tìm thấy ảnh phù hợp.");
+      } catch (error) {
+        console.warn("Không nhúng được ảnh vào báo cáo kiểm tra vật tư:", error);
+        writeWorkbookXlsx(workbook, filename);
+        showToast("Đã xuất báo cáo kiểm tra vật tư nhưng chưa nhúng được ảnh.");
+      }
     }
 
     function getWorkOrderSummaries() {
@@ -9232,8 +9310,7 @@
         setSheet2VisibleCount(getSheet2VisibleCountFromDom() + (isVisible ? 1 : -1));
       }
       scheduleWarehouseStockRefresh();
-      scheduleSaveAppData();
-      showToast("Đã lưu dòng BOM.");
+      if (persistBomRowsImmediately()) showToast("Đã lưu dòng BOM.");
     }
 
     function cancelBomRowEdit(row) {
@@ -9291,6 +9368,21 @@
       return { ok: true, normalizedQty };
     }
 
+    function persistBomRowsImmediately() {
+      try {
+        const payload = updateCachedTableRows("[data-bom-body]", "bomRows", "[data-bom-entry-row]");
+        payload.savedAt = new Date().toISOString();
+        writeCachedAppDataPayload(payload);
+        schedulePortableDataFileSave();
+        if (pendingSupabasePayload) void flushSupabaseSave();
+        return true;
+      } catch (error) {
+        console.warn("Không thể lưu ngay dữ liệu BOM:", error);
+        showToast("Lỗi: Dòng BOM chưa được lưu. Vui lòng thử lại.");
+        return false;
+      }
+    }
+
     function saveBomEntryRow(row, prepared = null) {
       const values = prepared?.values || getBomEntryValues(row);
       const validation = prepared?.validation || validateBomValues(values, null);
@@ -9321,8 +9413,7 @@
       if (isVisible) setSheet2VisibleCount(getSheet2VisibleCountFromDom() + 1);
       clearBomEntryRow(false);
       scheduleWarehouseStockRefresh();
-      scheduleSaveAppData();
-      showToast("Đã thêm dòng BOM mới.");
+      if (persistBomRowsImmediately()) showToast("Đã thêm và lưu dòng BOM mới.");
     }
 
     function makeGenericEntryRow(table) {
@@ -11390,8 +11481,7 @@
             row.remove();
             if (wasVisible) setSheet2VisibleCount(Math.max(0, getSheet2VisibleCountFromDom() - 1));
             scheduleWarehouseStockRefresh();
-            scheduleSaveAppData();
-            showToast("Đã xóa dòng BOM.");
+            if (persistBomRowsImmediately()) showToast("Đã xóa và lưu thay đổi BOM.");
           }
         });
       }
@@ -13469,17 +13559,20 @@
 
     function saveAppData() {
       try {
-        if (isReadOnlyMode()) return;
-        if (isRestoringBackup) return;
-        if (isApplyingRemoteData) return;
-        if (document.querySelector(".editing-row")) return;
+        if (isReadOnlyMode()) return false;
+        if (isRestoringBackup) return false;
+        if (isApplyingRemoteData) return false;
+        if (document.querySelector(".editing-row")) return false;
         clearTimeout(persistTimer);
         cachedAppDataPayload = buildAppDataPayload();
         localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(cachedAppDataPayload));
         queueSupabaseSave(cachedAppDataPayload, 100);
         appDataDirty = false;
+        return true;
       } catch (error) {
         console.warn("Không thể lưu dữ liệu ERP:", error);
+        showToast("Lỗi: Dữ liệu chưa được lưu. Vui lòng thử lại trước khi tải lại trang.");
+        return false;
       }
     }
 
@@ -13515,22 +13608,22 @@
       }
     }
 
-    function scheduleSaveAppData(delay = 2500) {
-      if (isReadOnlyMode()) return;
+    function scheduleSaveAppData(delay = 0) {
+      if (isReadOnlyMode()) return false;
       appDataDirty = true;
       clearTimeout(persistTimer);
-      persistTimer = setTimeout(() => {
-        const runSave = () => {
-          if (!appDataDirty) return;
-          saveAppData();
-          schedulePortableDataFileSave();
-        };
-        if ("requestIdleCallback" in window) {
-          window.requestIdleCallback(runSave, { timeout: 5000 });
-        } else {
-          runSave();
+      const runSave = () => {
+        if (!appDataDirty) return;
+        if (isRestoringBackup || isApplyingRemoteData || document.querySelector(".editing-row")) {
+          persistTimer = setTimeout(runSave, 100);
+          return;
         }
-      }, delay);
+        if (saveAppData()) schedulePortableDataFileSave();
+      };
+      const effectiveDelay = Math.min(Math.max(Number(delay) || 0, 0), 100);
+      if (effectiveDelay) persistTimer = setTimeout(runSave, effectiveDelay);
+      else runSave();
+      return true;
     }
 
     function shouldAutosaveButtonClick(button) {
@@ -13585,6 +13678,14 @@
             showToast("Supabase chưa có dữ liệu ERP. Vui lòng chờ Admin khởi tạo dữ liệu.");
           }
           return false;
+        }
+        const localSavedAt = Date.parse(cachedAppDataPayload?.savedAt || "") || 0;
+        const remoteSavedAt = Date.parse(row.data?.savedAt || "") || 0;
+        if (isAdminMode && cachedAppDataPayload && localSavedAt > remoteSavedAt) {
+          lastSupabaseUpdatedAt = row.updated_at || "";
+          queueSupabaseSave(cachedAppDataPayload, 0);
+          if (showMessage) showToast("Dữ liệu trên máy mới hơn. Đang đồng bộ lên Supabase.");
+          return true;
         }
         if (!forceApply && lastSupabaseUpdatedAt && row.updated_at && row.updated_at <= lastSupabaseUpdatedAt) return true;
         lastSupabaseUpdatedAt = row.updated_at || "";
