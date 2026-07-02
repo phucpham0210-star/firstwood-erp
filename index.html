@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js"></script>
-  <script src="preview-images-data.js"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260702162452"></script>
+  <script src="preview-images-data.js?v=20260702162452"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -262,7 +262,7 @@
     body.view-only .shipment-card.is-blank,
     body.view-only .order-card.is-blank,
     body.view-only .popover-btn,
-    body.view-only .order-card .mini-action,
+    body.view-only .order-card .mini-action:not(.viewer-allowed),
     body.view-only [onclick*="delete"],
     body.view-only [onclick*="edit"],
     body.view-only [onclick*="clear"],
@@ -1455,6 +1455,76 @@
     .toast.show {
       opacity: 1;
       transform: translateY(0);
+    }
+
+    .save-status {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 39;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #0f1724;
+      color: var(--muted);
+      box-shadow: var(--shadow);
+      padding: 7px 11px;
+      font-size: 11px;
+      font-weight: 900;
+      pointer-events: none;
+    }
+
+    .save-status::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      flex: 0 0 8px;
+      border-radius: 50%;
+      background: #64748b;
+    }
+
+    .save-status[data-state="saving"]::before {
+      background: #f59e0b;
+      animation: save-status-pulse 800ms ease-in-out infinite alternate;
+    }
+
+    .save-status[data-state="saved"] {
+      color: #9fffc7;
+      border-color: rgba(34, 197, 94, 0.35);
+    }
+
+    .save-status[data-state="saved"]::before {
+      background: #22c55e;
+    }
+
+    .save-status[data-state="warning"] {
+      color: #ffd08a;
+      border-color: rgba(245, 158, 11, 0.42);
+    }
+
+    .save-status[data-state="warning"]::before {
+      background: #f59e0b;
+    }
+
+    .save-status[data-state="error"] {
+      color: #ffaaaa;
+      border-color: rgba(239, 68, 68, 0.48);
+    }
+
+    .save-status[data-state="error"]::before {
+      background: #ef4444;
+    }
+
+    .toast.show {
+      bottom: 66px;
+    }
+
+    @keyframes save-status-pulse {
+      from { opacity: 0.45; transform: scale(0.85); }
+      to { opacity: 1; transform: scale(1.12); }
     }
 
     .modal-backdrop {
@@ -2681,6 +2751,7 @@
     </main>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="save-status" id="saveStatus" data-state="saved" role="status" aria-live="polite">Đã lưu trên máy</div>
   <datalist id="bomHardwareNames"></datalist>
   <datalist id="bomHardwareFw"></datalist>
   <datalist id="bomHardwarePp"></datalist>
@@ -2770,6 +2841,10 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle" style="max-width: 460px;">
       <div class="modal-head">
         <div class="modal-title" id="loginTitle">Đăng Nhập ERP<span>Dùng tài khoản admin hoặc tài khoản khách</span></div>
+        <div class="language-switch" aria-label="Login language" style="margin-left:auto;">
+          <button class="language-btn" type="button" data-language="en">EN</button>
+          <button class="language-btn" type="button" data-language="vi">VI</button>
+        </div>
         <button class="action-btn" data-close-modal="loginModal" type="button">Close<span>Đóng</span></button>
       </div>
       <form id="loginForm">
@@ -3148,6 +3223,7 @@
 
   <script>
     const toast = document.getElementById("toast");
+    const saveStatus = document.getElementById("saveStatus");
     const navItems = Array.from(document.querySelectorAll(".nav-item"));
     const sheetTargets = getSheetOrder();
     let activeTable = document.querySelector("table");
@@ -3176,6 +3252,7 @@
     let lastSupabaseUpdatedAt = "";
     let supabaseSaveTimer = null;
     let pendingSupabasePayload = null;
+    let supabaseSaveInFlight = false;
     let isApplyingRemoteData = false;
 
     const UI_EXACT_TRANSLATIONS = {
@@ -3218,6 +3295,8 @@
       "Can Edit": { en: "Can Edit", vi: "Được sửa" },
       "Người được sửa": { en: "Can Edit", vi: "Người được sửa" },
       "Người xem": { en: "Viewer", vi: "Người xem" },
+      "Kiểm tra": { en: "Check", vi: "Kiểm tra" },
+      "Check": { en: "Check", vi: "Kiểm tra" },
       "+ Manual Entry": { en: "+ Manual Entry", vi: "+ Nhập thủ công" }
     };
 
@@ -3282,7 +3361,7 @@
     }
 
     function localizePairElement(element) {
-      if (!element || element.closest(".brand, .language-switch")) return;
+      if (!element || element.closest(".brand, .language-switch, #loginModal")) return;
       if (element.classList?.contains("nav-item")) {
         const strong = element.querySelector(":scope > strong");
         const span = element.querySelector(":scope > span");
@@ -3302,7 +3381,7 @@
     }
 
     function localizeExactElement(element) {
-      if (!element || element.closest(".language-switch")) return;
+      if (!element || element.closest(".language-switch, #loginModal")) return;
       const span = getDirectSpan(element);
       if (span) return;
       const text = normalizeUiText(element.textContent);
@@ -3345,6 +3424,7 @@
       syncBomProductCardsFromSheet1();
       setSheet2VisibleCount(getSheet2VisibleCountFromDom());
       applyUiLanguage();
+      updateLoginLanguage();
       showToast(currentUiLanguage === "en" ? "Interface switched to English." : "Đã chuyển giao diện sang tiếng Việt.");
     }
 
@@ -3373,6 +3453,16 @@
       if (normalized === "Chưa nhận") return uiText("Not received", "Chưa nhận");
       if (normalized === "Lỗi") return uiText("Defective", "Lỗi");
       if (normalized === "Chênh lệch") return uiText("Variance", "Chênh lệch");
+      return normalized;
+    }
+
+    function formatWorkOrderStatusLabel(status) {
+      const normalized = String(status || "").trim();
+      if (normalized === "Đơn treo") return uiText("On hold", "Đơn treo");
+      if (normalized === "Đang sản xuất") return uiText("In production", "Đang sản xuất");
+      if (normalized === "Chờ xuất") return uiText("Awaiting shipment", "Chờ xuất");
+      if (normalized === "Đã xuất") return uiText("Shipped", "Đã xuất");
+      if (normalized === "Nháp") return uiText("Draft", "Nháp");
       return normalized;
     }
 
@@ -3594,6 +3684,7 @@
       }
       setLoginFormMode("login");
       updateLoginPasswordToggle();
+      updateLoginLanguage();
       openModal("loginModal");
       document.querySelectorAll('#loginModal [data-close-modal="loginModal"]').forEach(button => {
         button.style.display = ERP_REQUIRE_LOGIN && !hasActiveLogin() ? "none" : "";
@@ -3604,28 +3695,66 @@
     function setLoginFormMode(mode) {
       loginFormMode = mode === "signup" ? "signup" : "login";
       const isSignup = loginFormMode === "signup";
-      const title = document.getElementById("loginTitle");
-      if (title) {
-        title.firstChild.textContent = isSignup ? "Tạo tài khoản" : "Đăng Nhập ERP";
-        const label = title.querySelector("span");
-        if (label) label.textContent = isSignup ? "Tài khoản mới mặc định là Người xem" : "Dùng tài khoản admin hoặc tài khoản khách";
-      }
       document.querySelectorAll("#loginModal .login-signup-only").forEach((node) => {
         node.classList.toggle("is-hidden", !isSignup);
       });
-      const submitButton = document.querySelector('#loginForm button[type="submit"]');
-      if (submitButton) {
-        submitButton.firstChild.textContent = isSignup ? "Sign up" : "Login";
-        const label = submitButton.querySelector("span");
-        if (label) label.textContent = isSignup ? "Đăng ký" : "Đăng nhập";
-      }
-      const toggleButton = document.getElementById("loginModeToggleBtn");
-      if (toggleButton) {
-        toggleButton.firstChild.textContent = isSignup ? "Back to login" : "Create account";
-        const label = toggleButton.querySelector("span");
-        if (label) label.textContent = isSignup ? "Về đăng nhập" : "Tạo tài khoản";
-      }
+      updateLoginLanguage();
       scheduleApplyUiLanguage(20);
+    }
+
+    function setLoginElementText(selector, text) {
+      const element = document.querySelector(selector);
+      if (!element) return;
+      const ownText = getOwnTextNode(element);
+      if (ownText) ownText.textContent = text;
+      else element.insertBefore(document.createTextNode(text), element.firstChild);
+      const directSpan = getDirectSpan(element);
+      if (directSpan) directSpan.style.display = "none";
+    }
+
+    function updateLoginLanguage() {
+      const isEnglish = currentUiLanguage === "en";
+      const isSignup = loginFormMode === "signup";
+      const title = document.getElementById("loginTitle");
+      if (title) {
+        setLoginElementText("#loginTitle", isSignup
+          ? (isEnglish ? "Create Account" : "Tạo tài khoản")
+          : (isEnglish ? "ERP Login" : "Đăng Nhập ERP"));
+        const subtitle = title.querySelector("span");
+        if (subtitle) {
+          subtitle.style.display = "";
+          subtitle.textContent = isSignup
+            ? (isEnglish ? "New accounts are created with View-Only access by default" : "Tài khoản mới mặc định là Người xem")
+            : (isEnglish ? "Use an administrator or guest account" : "Dùng tài khoản admin hoặc tài khoản khách");
+        }
+      }
+
+      const signupNote = document.getElementById("signupModeNote");
+      if (signupNote) signupNote.textContent = isEnglish
+        ? "Self-registered accounts are View-Only by default. An administrator can grant editing permission when required."
+        : "Tài khoản tự đăng ký sẽ mặc định là Người xem. Admin sẽ cấp quyền chỉnh sửa nếu cần.";
+
+      const fields = document.querySelectorAll("#loginModal .field");
+      if (fields[0]?.querySelector("label")) fields[0].querySelector("label").childNodes[0].textContent = isEnglish ? "Account" : "Tài khoản";
+      if (fields[1]?.querySelector("label")) fields[1].querySelector("label").childNodes[0].textContent = isEnglish ? "Display name" : "Tên hiển thị";
+      if (fields[2]?.querySelector("label")) fields[2].querySelector("label").childNodes[0].textContent = isEnglish ? "Password" : "Mật khẩu";
+
+      const emailInput = document.getElementById("loginEmail");
+      const displayNameInput = document.getElementById("signupDisplayName");
+      const passwordInput = document.getElementById("loginPassword");
+      if (emailInput) emailInput.placeholder = isEnglish ? "Enter account" : "Nhập tài khoản";
+      if (displayNameInput) displayNameInput.placeholder = isEnglish ? "Company or user name" : "Tên công ty hoặc người dùng";
+      if (passwordInput) passwordInput.placeholder = isEnglish ? "Enter password" : "Nhập mật khẩu";
+
+      setLoginElementText('#loginModal .modal-head [data-close-modal="loginModal"]', isEnglish ? "Close" : "Đóng");
+      setLoginElementText('#loginModal .modal-actions [data-close-modal="loginModal"]', isEnglish ? "Cancel" : "Hủy");
+      setLoginElementText("#loginModeToggleBtn", isSignup
+        ? (isEnglish ? "Back to login" : "Về đăng nhập")
+        : (isEnglish ? "Create account" : "Tạo tài khoản"));
+      setLoginElementText('#loginForm button[type="submit"]', isSignup
+        ? (isEnglish ? "Sign up" : "Đăng ký")
+        : (isEnglish ? "Login" : "Đăng nhập"));
+      updateLoginPasswordToggle();
     }
 
     function updateLoginPasswordToggle() {
@@ -3633,9 +3762,11 @@
       const toggleBtn = document.getElementById("toggleLoginPasswordBtn");
       if (!passwordInput || !toggleBtn) return;
       const isVisible = passwordInput.type === "text";
-      toggleBtn.firstChild.textContent = isVisible ? "Ẩn" : "Hiện";
+      toggleBtn.firstChild.textContent = currentUiLanguage === "en"
+        ? (isVisible ? "Hide" : "Show")
+        : (isVisible ? "Ẩn" : "Hiện");
       const label = toggleBtn.querySelector("span");
-      if (label) label.textContent = isVisible ? "Hide" : "Show";
+      if (label) label.style.display = "none";
     }
 
     function normalizeAccountUsername(value) {
@@ -3806,7 +3937,7 @@
       `).join("");
     }
 
-    const AUDIT_HISTORY_LIMIT = 30;
+    const AUDIT_HISTORY_LIMIT = 3;
     const AUDIT_PAYLOAD_KEYS = [
       "productRows",
       "hardwareRows",
@@ -3857,10 +3988,8 @@
     }
 
     function createAuditEntry(beforePayload, afterPayload) {
-      const beforeClean = stripAuditPayload(beforePayload);
-      const afterClean = stripAuditPayload(afterPayload);
-      if (!beforeClean || !afterClean) return null;
-      const changedKeys = getPayloadDiffKeys(beforeClean, afterClean);
+      if (!beforePayload || !afterPayload) return null;
+      const changedKeys = getPayloadDiffKeys(beforePayload, afterPayload);
       if (!changedKeys.length) return null;
       return {
         id: `audit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -3869,8 +3998,7 @@
         role: currentUserRole,
         areas: changedKeys.map((key) => AUDIT_AREA_LABELS[key] || key),
         summary: changedKeys.length === 1 ? `Thay đổi ${AUDIT_AREA_LABELS[changedKeys[0]] || changedKeys[0]}` : `Thay đổi ${changedKeys.length} khu vực`,
-        beforePayload: beforeClean,
-        afterPayload: afterClean
+        beforePayload: stripAuditPayload(beforePayload)
       };
     }
 
@@ -3916,8 +4044,7 @@
               role: currentUserRole,
               areas: ["Khôi phục dữ liệu"],
               summary: `Khôi phục về trước thao tác của ${entry.user || "-"}`,
-              beforePayload: stripAuditPayload(buildAppDataPayload()),
-              afterPayload: stripAuditPayload(restorePayload)
+              beforePayload: stripAuditPayload(buildAppDataPayload())
             },
             ...preservedHistory
           ].slice(0, AUDIT_HISTORY_LIMIT);
@@ -4236,12 +4363,12 @@
       if (blockedButton) return true;
       if (target.closest("[contenteditable='true'], [data-guest-contenteditable='true']")) return true;
       const input = target.closest("input, select, textarea");
-      return Boolean(input && input.closest("table, .modal, .shipment-card, .order-card") && !input.closest(".filter-bar, .sheet-filters, #filterModal, #sheet2ExportModal, #sheet3ExportModal"));
+      return Boolean(input && input.closest("table, .modal, .shipment-card, .order-card") && !input.closest(".filter-bar, .sheet-filters, #filterModal, #sheet2ExportModal, #sheet3ExportModal, #orderCheckModal"));
     }
 
     document.addEventListener("click", (event) => {
       if (!isReadOnlyMode()) return;
-      if (event.target.closest("#roleToggleBtn, #accountManageBtn, [data-nav], [data-filter-open], [data-filter-apply], [data-filter-clear], [data-close-modal], [data-modal-close], [data-warehouse-tab], [data-order-tab]")) return;
+      if (event.target.closest("#roleToggleBtn, #accountManageBtn, #orderCheckModal, .viewer-allowed, [data-nav], [data-filter-open], [data-filter-apply], [data-filter-clear], [data-close-modal], [data-modal-close], [data-warehouse-tab], [data-order-tab]")) return;
       if (!isReadOnlyBlockedTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
@@ -4249,13 +4376,13 @@
     }, true);
 
     document.addEventListener("beforeinput", (event) => {
-      if (!isReadOnlyMode() || !isReadOnlyBlockedTarget(event.target)) return;
+      if (!isReadOnlyMode() || event.target.closest("#orderCheckModal") || !isReadOnlyBlockedTarget(event.target)) return;
       event.preventDefault();
       canEditData(true);
     }, true);
 
     document.addEventListener("change", (event) => {
-      if (!isReadOnlyMode() || !isReadOnlyBlockedTarget(event.target)) return;
+      if (!isReadOnlyMode() || event.target.closest("#orderCheckModal") || !isReadOnlyBlockedTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       canEditData(true);
@@ -4278,6 +4405,12 @@
       toast.classList.add("show");
       window.clearTimeout(showToast.timer);
       showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+    }
+
+    function setSaveStatus(state, message) {
+      if (!saveStatus) return;
+      saveStatus.dataset.state = state;
+      saveStatus.textContent = message;
     }
 
     function openModal(id) {
@@ -4813,6 +4946,37 @@
     }));
     const PRODUCT_PREVIEW_FOLDER = "Preview Production PP";
 
+    function getBundledPreviewImageKey(previewPath) {
+      const imageData = window.PREVIEW_IMAGE_DATA;
+      if (!previewPath || !imageData || typeof imageData !== "object") return "";
+      try {
+        const pathname = decodeURIComponent(new URL(previewPath, window.location.href).pathname).replace(/\\/g, "/");
+        const folders = [HARDWARE_PREVIEW_FOLDER, PRODUCT_PREVIEW_FOLDER];
+        for (const folder of folders) {
+          const marker = `/${folder}/`;
+          const markerIndex = pathname.toLowerCase().indexOf(marker.toLowerCase());
+          if (markerIndex < 0) continue;
+          const requestedKey = pathname.slice(markerIndex + 1);
+          if (imageData[requestedKey]) return requestedKey;
+          const normalizedKey = requestedKey.toLowerCase();
+          return Object.keys(imageData).find((key) => key.toLowerCase() === normalizedKey) || "";
+        }
+      } catch (error) {
+        return "";
+      }
+      return "";
+    }
+
+    function getPreviewExcelUrl(candidates) {
+      if (!Array.isArray(candidates) || !candidates.length) return "";
+      const matchedPath = candidates.find((candidate) => getBundledPreviewImageKey(candidate)) || candidates[0];
+      try {
+        return new URL(matchedPath, window.location.href).href;
+      } catch (error) {
+        return matchedPath;
+      }
+    }
+
     function getHardwarePreviewCandidates(ppCode) {
       const key = String(ppCode || "").replace(/\s+/g, " ").trim().toLowerCase();
       const rawCode = String(ppCode || "").replace(/\s+/g, " ").trim();
@@ -4826,13 +4990,7 @@
     }
 
     function getHardwarePreviewExcelUrl(ppCode) {
-      const previewPath = getHardwarePreviewCandidates(ppCode)[0];
-      if (!previewPath) return "";
-      try {
-        return new URL(previewPath, window.location.href).href;
-      } catch (error) {
-        return previewPath;
-      }
+      return getPreviewExcelUrl(getHardwarePreviewCandidates(ppCode));
     }
 
     function getProductPreviewCandidates(productCode) {
@@ -4843,13 +5001,7 @@
     }
 
     function getProductPreviewExcelUrl(productCode) {
-      const previewPath = getProductPreviewCandidates(productCode)[0];
-      if (!previewPath) return "";
-      try {
-        return new URL(previewPath, window.location.href).href;
-      } catch (error) {
-        return previewPath;
-      }
+      return getPreviewExcelUrl(getProductPreviewCandidates(productCode));
     }
 
     function handleHardwarePreviewError(img) {
@@ -8096,18 +8248,10 @@
       openModal("orderCheckModal");
     };
 
-    async function exportOrderCheckReport() {
-      if (typeof XLSX === "undefined") {
-        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
-        return;
-      }
+    function buildOrderCheckExportSheet(mode) {
+      orderCheckViewMode = mode;
+      renderOrderCheckResults();
       const bodyRows = Array.from(document.querySelectorAll("#orderCheckResultBody tr"));
-      const itemRows = bodyRows.filter((row) => !row.classList.contains("order-check-product-row") && row.cells.length >= 9);
-      if (!itemRows.length) {
-        showToast("Chưa có kết quả kiểm tra vật tư để xuất.");
-        return;
-      }
-
       const headers = [
         "Hình ảnh / Preview",
         "Tên hàng / Item name",
@@ -8122,14 +8266,22 @@
       const contextLabel = orderCheckContext.type === "workOrder"
         ? `Lệnh sản xuất / Work order: ${orderCheckContext.workOrderNo || "-"}`
         : "Đơn hàng đã chọn / Selected orders";
+      const viewLabel = mode === "shortage"
+        ? "Gộp tổng phần cứng / Consolidated hardware summary"
+        : "Tách theo sản phẩm / Breakdown by product";
       const rows = [
         ["BÁO CÁO KIỂM TRA VẬT TƯ / MATERIAL CHECK REPORT"],
         [contextLabel],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
-        [],
+        [viewLabel],
         headers
       ];
-      const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
+      const merges = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 8 } },
+        { s: { r: 3, c: 0 }, e: { r: 3, c: 8 } }
+      ];
       const imageAnchors = [];
 
       bodyRows.forEach((row) => {
@@ -8159,9 +8311,7 @@
         }
       });
 
-      const workbook = XLSX.utils.book_new();
       const worksheet = XLSX.utils.aoa_to_sheet(rows);
-      const sheetName = "Kiem tra vat tu";
       worksheet["!cols"] = [
         { wch: 16 }, { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 28 },
         { wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 18 }
@@ -8169,19 +8319,51 @@
       worksheet["!rows"] = rows.map((_, rowIndex) => imageAnchors.some((anchor) => anchor.row === rowIndex) ? { hpt: 70 } : {});
       worksheet["!merges"] = merges;
       worksheet["!autofilter"] = { ref: `A5:I${rows.length}` };
-      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      return { worksheet, imageAnchors, itemCount: imageAnchors.length || bodyRows.filter((row) => !row.classList.contains("order-check-product-row") && row.cells.length >= 9).length };
+    }
+
+    async function exportOrderCheckReport() {
+      if (typeof XLSX === "undefined") {
+        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
+        return;
+      }
+
+      const previousMode = orderCheckViewMode;
+      const workbook = XLSX.utils.book_new();
+      const imageAnchorsBySheet = new Map();
+      const exportSheets = [
+        { mode: "product", name: "Theo san pham" },
+        { mode: "shortage", name: "Gop tong phan cung" }
+      ];
+      let totalItemCount = 0;
+      try {
+        exportSheets.forEach(({ mode, name }) => {
+          const result = buildOrderCheckExportSheet(mode);
+          totalItemCount += result.itemCount;
+          XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
+          imageAnchorsBySheet.set(name, result.imageAnchors);
+        });
+      } finally {
+        orderCheckViewMode = previousMode;
+        renderOrderCheckResults();
+      }
+
+      if (!totalItemCount) {
+        showToast("Chưa có kết quả kiểm tra vật tư để xuất.");
+        return;
+      }
 
       const stamp = new Date().toISOString().slice(0, 10);
       const filename = `firstwood-order-material-check-${stamp}.xlsx`;
       try {
-        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, new Map([[sheetName, imageAnchors]]));
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet);
         showToast(hasEmbeddedImages
-          ? "Đã xuất báo cáo kiểm tra vật tư kèm hình ảnh."
-          : "Đã xuất báo cáo kiểm tra vật tư nhưng không tìm thấy ảnh phù hợp.");
+          ? "Đã xuất báo cáo kiểm tra vật tư thành 2 sheet kèm hình ảnh."
+          : "Đã xuất báo cáo kiểm tra vật tư thành 2 sheet nhưng không tìm thấy ảnh phù hợp.");
       } catch (error) {
         console.warn("Không nhúng được ảnh vào báo cáo kiểm tra vật tư:", error);
         writeWorkbookXlsx(workbook, filename);
-        showToast("Đã xuất báo cáo kiểm tra vật tư nhưng chưa nhúng được ảnh.");
+        showToast("Đã xuất báo cáo kiểm tra vật tư thành 2 sheet nhưng chưa nhúng được ảnh.");
       }
     }
 
@@ -9780,24 +9962,17 @@
       const imageData = window.PREVIEW_IMAGE_DATA;
       if (!imageUrl || !imageData || typeof imageData !== "object") return null;
       try {
-        const pathname = decodeURIComponent(new URL(imageUrl, window.location.href).pathname).replace(/\\/g, "/");
-        const folders = [HARDWARE_PREVIEW_FOLDER, PRODUCT_PREVIEW_FOLDER];
-        for (const folder of folders) {
-          const marker = `/${folder}/`;
-          const markerIndex = pathname.toLowerCase().indexOf(marker.toLowerCase());
-          if (markerIndex < 0) continue;
-          const key = pathname.slice(markerIndex + 1);
-          const dataUrl = imageData[key];
-          if (!dataUrl) return null;
-          const match = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
-          if (!match) return null;
-          const binary = atob(match[2]);
-          const bytes = new Uint8Array(binary.length);
-          for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-          const contentType = match[1] || "image/jpeg";
-          const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-          return { bytes, contentType, extension, name: fallbackName, dataUrl };
-        }
+        const key = getBundledPreviewImageKey(imageUrl);
+        const dataUrl = key ? imageData[key] : "";
+        if (!dataUrl) return null;
+        const match = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) return null;
+        const binary = atob(match[2]);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        const contentType = match[1] || "image/jpeg";
+        const extension = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+        return { bytes, contentType, extension, name: fallbackName, dataUrl };
       } catch (error) {
         return null;
       }
@@ -9807,7 +9982,7 @@
     async function tryFetchWorkbookImage(imageUrl, fallbackName) {
       if (!imageUrl) return null;
       try {
-        const response = await fetch(imageUrl, { cache: "force-cache" });
+        const response = await fetch(imageUrl, { cache: "no-store" });
         if (!response.ok) return null;
         const blob = await response.blob();
         const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -9821,13 +9996,13 @@
 
     async function fetchImageForWorkbook(imageUrl, fallbackName) {
       if (!imageUrl) return null;
+      const directImage = await tryFetchWorkbookImage(imageUrl, fallbackName);
+      if (directImage) return directImage;
       const bundledImage = getBundledWorkbookImage(imageUrl, fallbackName);
       if (bundledImage) {
         const normalizedImage = await loadImageForWorkbookViaCanvas(bundledImage.dataUrl, fallbackName);
         return normalizedImage || bundledImage;
       }
-      const directImage = await tryFetchWorkbookImage(imageUrl, fallbackName);
-      if (directImage) return directImage;
       const remoteImageUrl = getWorkbookRemoteImageUrl(imageUrl);
       const remoteImage = await tryFetchWorkbookImage(remoteImageUrl, fallbackName);
       if (remoteImage) return remoteImage;
@@ -11956,29 +12131,29 @@
           card.className = "mini-card order-card" + (isActive ? " active" : "");
           card.innerHTML = `
             <div class="shipment-meta-item" style="margin-bottom:8px;">
-              <span>Số Lệnh Sản xuất</span>
+              <span>${uiText("Work order number", "Số Lệnh Sản xuất")}</span>
               <div style="font-size:14px; font-weight:900; color:#ffffff;">${workOrder.woNo}</div>
             </div>
             <div class="shipment-meta-item" style="margin-bottom:8px;">
-              <span>Khách hàng</span>
+              <span>${uiText("Customer", "Khách hàng")}</span>
               <div class="shipment-supplier-tag" style="display:inline-block; margin-top:2px;" title="${customerText}">${customerText}</div>
             </div>
             <div class="shipment-meta-item">
-              <span>Địa chỉ giao hàng</span>
+              <span>${uiText("Delivery address", "Địa chỉ giao hàng")}</span>
               <div style="font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${addressText}">${addressText}</div>
             </div>
             <div class="shipment-meta-item" style="margin-top:8px;">
-              <span>Tổng CBM đơn hàng</span>
+              <span>${uiText("Total order CBM", "Tổng CBM đơn hàng")}</span>
               <div style="margin-top:2px; font-size:13px; font-weight:900; color:#62a2ff;">${formatTotalCbm(workOrder.totalCbm)} m³</div>
             </div>
             <div class="shipment-meta-item" style="margin-top:8px;">
-              <span>Trạng thái</span>
-              <div style="margin-top:3px;">${renderStatusBadge(statusText)}</div>
+              <span>${uiText("Status", "Trạng thái")}</span>
+              <div style="margin-top:3px;">${renderStatusBadge(formatWorkOrderStatusLabel(statusText))}</div>
             </div>
           `;
           card.insertAdjacentHTML("beforeend", `
             <div class="shipment-actions-trigger" onclick="toggleWorkOrderActions('${workOrder.woNo}', event)">...</div>
-            <button class="mini-action primary" style="position:absolute; right:12px; bottom:10px; width:72px; height:24px; padding:0; font-size:10px; z-index:20;" onclick="openWorkOrderCheckModal('${workOrder.woNo}', event)">Kiểm tra</button>
+            <button class="mini-action primary viewer-allowed" style="position:absolute; right:12px; bottom:10px; width:72px; height:24px; padding:0; font-size:10px; z-index:20;" onclick="openWorkOrderCheckModal('${workOrder.woNo}', event)">${uiText("Check", "Kiểm tra")}</button>
             <div class="order-popover is-hidden" id="workOrderPopover-${workOrder.woNo}" style="position:absolute; top:30px; right:12px; background:#101620; border:1px solid var(--line); border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:4px; z-index:30; box-shadow:var(--shadow);">
               <button class="mini-action primary" style="width:72px;" onclick="editWorkOrderCard('${workOrder.woNo}', event)">Sửa</button>
               <button class="mini-action danger" style="width:72px;" onclick="deleteWorkOrderCard('${workOrder.woNo}', event)">Xóa</button>
@@ -12156,7 +12331,7 @@
             <div style="font-size:10px; color:var(--muted); margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${order.address}">
               ${order.address || "-"}
             </div>
-            <button class="mini-action primary" style="position:absolute; right:12px; bottom:10px; width:72px; height:24px; padding:0; font-size:10px; z-index:20;" onclick="openOrderCheckModal(${originalIndex}, event)">Kiểm tra</button>
+            <button class="mini-action primary viewer-allowed" style="position:absolute; right:12px; bottom:10px; width:72px; height:24px; padding:0; font-size:10px; z-index:20;" onclick="openOrderCheckModal(${originalIndex}, event)">${uiText("Check", "Kiểm tra")}</button>
             <div class="order-popover is-hidden" id="orderPopover-${originalIndex}" style="position:absolute; top:30px; right:12px; background:#101620; border:1px solid var(--line); border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:4px; z-index:30; box-shadow:var(--shadow);">
               <button class="mini-action primary" style="width:72px;" onclick="editingOrderIndex=${originalIndex}; renderOrderCards(); event.stopPropagation();">Sửa</button>
               <button class="mini-action danger" style="width:72px;" onclick="deleteOrderDetails(${originalIndex}, event)">Xóa</button>
@@ -13377,6 +13552,38 @@
     let portableDataSaveTimer = null;
     let appDataDirty = false;
     let cachedAppDataPayload = null;
+    let localStorageTrimWarningShown = false;
+
+    function isStorageQuotaError(error) {
+      return error?.name === "QuotaExceededError"
+        || error?.name === "NS_ERROR_DOM_QUOTA_REACHED"
+        || error?.code === 22
+        || error?.code === 1014;
+    }
+
+    function persistAppDataLocally(payload) {
+      const history = Array.isArray(payload?.auditHistory) ? payload.auditHistory : [];
+      const historyLimits = [...new Set([history.length, 10, 5, 2, 1, 0].filter(limit => limit <= history.length))];
+      let lastError = null;
+      for (const historyLimit of historyLimits) {
+        const localPayload = historyLimit === history.length
+          ? payload
+          : { ...payload, auditHistory: history.slice(0, historyLimit) };
+        try {
+          localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(localPayload));
+          if (historyLimit < history.length && !localStorageTrimWarningShown) {
+            localStorageTrimWarningShown = true;
+            console.warn(`Bộ nhớ trình duyệt gần đầy. Đã thu gọn lịch sử cục bộ còn ${historyLimit} bản để bảo đảm dữ liệu mới được lưu.`);
+          }
+          setSaveStatus("saved", getSupabaseAccessToken() && isAdminMode ? "Đã lưu trên máy • Đang đồng bộ…" : "Đã lưu trên máy");
+          return true;
+        } catch (error) {
+          lastError = error;
+          if (!isStorageQuotaError(error)) throw error;
+        }
+      }
+      throw lastError || new Error("Không thể lưu dữ liệu vào bộ nhớ trình duyệt.");
+    }
 
     function getSavedTableRows(selector, excludeSelector = "") {
       const root = document.querySelector(selector);
@@ -13384,7 +13591,12 @@
       const rows = Array.from(tbody?.rows || []);
       return rows
         .filter(row => !excludeSelector || !row.matches(excludeSelector))
-        .map(row => row.outerHTML);
+        .map(row => {
+          if (row.classList.contains("editing-row") && row.dataset.originalHtml) {
+            return row.dataset.originalHtml;
+          }
+          return row.outerHTML;
+        });
     }
 
     function replaceTableRows(selector, rowsHtml, entrySelector = "") {
@@ -13410,7 +13622,7 @@
         salesOrders,
         productionAllocations,
         managedAccounts,
-        auditHistory,
+        auditHistory: auditHistory.slice(0, AUDIT_HISTORY_LIMIT),
         activeOrderIndex,
         activeWorkOrderNo
       };
@@ -13440,7 +13652,8 @@
           payload.auditHistory = auditHistory;
         }
       }
-      localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(payload));
+      setSaveStatus("saving", "Đang lưu…");
+      persistAppDataLocally(payload);
       queueSupabaseSave(payload, 100);
       appDataDirty = false;
     }
@@ -13562,35 +13775,41 @@
         if (isReadOnlyMode()) return false;
         if (isRestoringBackup) return false;
         if (isApplyingRemoteData) return false;
-        if (document.querySelector(".editing-row")) return false;
         clearTimeout(persistTimer);
+        setSaveStatus("saving", "Đang lưu…");
         cachedAppDataPayload = buildAppDataPayload();
-        localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(cachedAppDataPayload));
+        persistAppDataLocally(cachedAppDataPayload);
         queueSupabaseSave(cachedAppDataPayload, 100);
         appDataDirty = false;
         return true;
       } catch (error) {
         console.warn("Không thể lưu dữ liệu ERP:", error);
         showToast("Lỗi: Dữ liệu chưa được lưu. Vui lòng thử lại trước khi tải lại trang.");
+        setSaveStatus("error", "Lỗi • Chưa lưu được");
         return false;
       }
     }
 
     function queueSupabaseSave(payload, delay = 250) {
       if (!isAdminMode || isRestoringBackup || isApplyingRemoteData) return;
-      if (!getSupabaseAccessToken()) return;
+      if (!getSupabaseAccessToken()) {
+        setSaveStatus("saved", "Đã lưu trên máy");
+        return;
+      }
       pendingSupabasePayload = payload ? { ...payload } : buildAppDataPayload();
       clearTimeout(supabaseSaveTimer);
+      setSaveStatus("saving", "Đã lưu trên máy • Đang đồng bộ…");
       supabaseSaveTimer = setTimeout(flushSupabaseSave, delay);
     }
 
     async function flushSupabaseSave() {
-      if (!pendingSupabasePayload || !isAdminMode || !getSupabaseAccessToken()) return;
+      if (supabaseSaveInFlight || !pendingSupabasePayload || !isAdminMode || !getSupabaseAccessToken()) return;
+      supabaseSaveInFlight = true;
       const payload = pendingSupabasePayload;
       pendingSupabasePayload = null;
       try {
         const ok = await refreshSupabaseSessionIfNeeded();
-        if (!ok) return;
+        if (!ok) throw new Error("Phiên đăng nhập Supabase không còn hợp lệ.");
         const rows = await supabaseFetch("/rest/v1/erp_state?on_conflict=id", {
           method: "POST",
           headers: { Prefer: "resolution=merge-duplicates,return=representation" },
@@ -13602,9 +13821,19 @@
         });
         const savedRow = Array.isArray(rows) ? rows[0] : null;
         if (savedRow?.updated_at) lastSupabaseUpdatedAt = savedRow.updated_at;
+        if (!pendingSupabasePayload) setSaveStatus("saved", "Đã lưu và đồng bộ");
       } catch (error) {
         console.warn("Không thể lưu dữ liệu lên Supabase:", error);
-        showToast("Chưa lưu được lên Supabase. Kiểm tra SQL/policy hoặc mạng.");
+        if (!pendingSupabasePayload) pendingSupabasePayload = payload;
+        setSaveStatus("warning", "Đã lưu trên máy • Chờ đồng bộ");
+        clearTimeout(supabaseSaveTimer);
+        supabaseSaveTimer = setTimeout(flushSupabaseSave, 3000);
+      } finally {
+        supabaseSaveInFlight = false;
+        if (pendingSupabasePayload && saveStatus?.dataset.state !== "warning") {
+          clearTimeout(supabaseSaveTimer);
+          supabaseSaveTimer = setTimeout(flushSupabaseSave, 50);
+        }
       }
     }
 
@@ -13614,7 +13843,7 @@
       clearTimeout(persistTimer);
       const runSave = () => {
         if (!appDataDirty) return;
-        if (isRestoringBackup || isApplyingRemoteData || document.querySelector(".editing-row")) {
+        if (isRestoringBackup || isApplyingRemoteData) {
           persistTimer = setTimeout(runSave, 100);
           return;
         }
@@ -13653,7 +13882,7 @@
         normalizeSheet1AndSheet2UomDisplays();
         repairSheet1VietnameseText();
         cachedAppDataPayload = { ...payload };
-        localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(cachedAppDataPayload));
+        persistAppDataLocally(cachedAppDataPayload);
         refreshLocalAccountRole();
       } finally {
         isApplyingRemoteData = false;
@@ -13813,7 +14042,7 @@
             return;
           }
           isRestoringBackup = true;
-          localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(payload));
+          persistAppDataLocally(payload);
           showToast("Đã nạp dữ liệu backup. Ứng dụng sẽ tải lại.");
           setTimeout(() => window.location.reload(), 700);
         } catch (error) {
@@ -13881,7 +14110,7 @@
         portableDataFileHandle = handle;
         await rememberPortableDataFileHandle(handle);
         isRestoringBackup = true;
-        localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(payload));
+        persistAppDataLocally(payload);
         showToast("Đã mở file dữ liệu. Ứng dụng sẽ tải lại.");
         setTimeout(() => window.location.reload(), 700);
       } catch (error) {
@@ -13941,3 +14170,12 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
