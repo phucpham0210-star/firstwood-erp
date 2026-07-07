@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260702162452"></script>
-  <script src="preview-images-data.js?v=20260702162452"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260707185958"></script>
+  <script src="preview-images-data.js?v=20260707185958"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -267,6 +267,59 @@
     body.view-only [onclick*="edit"],
     body.view-only [onclick*="clear"],
     body.view-only [onclick*="add"] {
+      display: none !important;
+    }
+
+    /* Tick chọn xóa nhanh - bảng Mã Phần Cứng */
+    .hw-select {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .hw-select input[type="checkbox"],
+    .hw-select-all input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #ef4444;
+      margin: 0;
+    }
+    .hw-select-all {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-right: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted, #94a3b8);
+    }
+    tr.hw-row-selected > td {
+      background: rgba(239, 68, 68, 0.12) !important;
+    }
+    .hw-bulk-bar {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 10px;
+      padding: 10px 14px;
+      background: rgba(239, 68, 68, 0.10);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .hw-bulk-bar.is-active {
+      display: flex;
+    }
+    .hw-bulk-bar .hw-bulk-count {
+      font-weight: 900;
+      font-size: 13px;
+      color: #ef4444;
+    }
+    body.view-only .hw-select,
+    body.view-only .hw-select-all,
+    body.view-only .hw-bulk-bar {
       display: none !important;
     }
 
@@ -1622,6 +1675,31 @@
       text-align: left;
     }
 
+    #orderCheckResultTable .order-check-product-row .order-check-product-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #orderCheckResultTable .order-check-product-row .preview-box {
+      width: 48px;
+      height: 48px;
+      flex: 0 0 auto;
+    }
+
+    .order-check-usage-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .order-check-usage-btn {
+      min-width: 28px;
+      padding: 2px 8px;
+      font-weight: 900;
+      line-height: 1.1;
+    }
+
     #orderCheckResultTable th:nth-child(1),
     #orderCheckResultTable td:nth-child(1) {
       width: 112px;
@@ -2220,6 +2298,11 @@
       </section>
 
       <section class="table-shell is-hidden" data-catalog-panel="hardware" aria-label="Bảng dữ liệu mã phần cứng">
+        <div class="hw-bulk-bar" id="hardwareBulkBar">
+          <span class="hw-bulk-count"><span id="hardwareBulkCount">0</span> mục đã chọn<span style="font-weight:700; color:var(--muted); font-size:10px; margin-left:4px;">selected</span></span>
+          <button class="mini-action danger" type="button" data-hardware-bulk-delete style="font-weight:900;">Xóa mục đã chọn<span>Delete selected</span></button>
+          <button class="mini-action" type="button" data-hardware-bulk-clear>Bỏ chọn<span>Clear</span></button>
+        </div>
         <div class="table-wrap">
           <table data-hardware-table data-status-column="8" data-uom-options="EA,SET,PAIRS,mm" data-supplier-options="FW,Omexey,Acufit,Maddog,Other" data-status-options="Đã duyệt,Mẫu,Lỗi,Phiên bản cũ,Other" data-filter-columns='[{"label":"Mã FW","columns":[2]},{"label":"Mã PP","columns":[3]},{"label":"Vật liệu","columns":[5]},{"label":"Nhà cung cấp","columns":[7]},{"label":"Trạng thái","columns":[8]}]'>
             <thead>
@@ -2236,11 +2319,16 @@
                 <th data-hardware-sort="9">Loại<span>Type</span></th>
                 <th>Sản phẩm sử dụng<span>Used by products</span></th>
                 <th>Ghi chú<span>Remarks</span></th>
-                <th>Thao tác<span>Action</span></th>
+                <th>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <label class="hw-select-all" title="Chọn/bỏ chọn tất cả dòng đang hiển thị"><input type="checkbox" data-hardware-select-all></label>
+                    <span>Thao tác<span>Action</span></span>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
-              
+
               </tbody>
           </table>
         </div>
@@ -3031,6 +3119,36 @@
     </div>
   </div>
 
+  <div class="modal-backdrop is-hidden" id="orderCheckBreakdownModal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="orderCheckBreakdownTitle" style="max-width: 680px;">
+      <div class="modal-head">
+        <div class="modal-title" id="orderCheckBreakdownTitle">Chi tiết theo sản phẩm<span>Mỗi mã sản phẩm cần bao nhiêu vật tư này</span></div>
+        <button class="action-btn" data-close-modal="orderCheckBreakdownModal" type="button">Close<span>Đóng</span></button>
+      </div>
+      <div class="modal-body" style="padding: 16px 0;">
+        <div class="table-shell compact" style="margin-top: 0; border: 0; background: transparent;">
+          <div class="table-wrap">
+            <table style="min-width: 100%;">
+              <thead>
+                <tr>
+                  <th>Mã sản phẩm<span>Product Code</span></th>
+                  <th>Tên sản phẩm<span>Product Name</span></th>
+                  <th>Số lượng cần<span>Required Qty</span></th>
+                </tr>
+              </thead>
+              <tbody id="orderCheckBreakdownBody">
+                <!-- DYNAMICALLY POPULATED -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="action-btn primary" data-close-modal="orderCheckBreakdownModal" type="button">Close<span>Đóng</span></button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop is-hidden" id="orderCheckModal" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="orderCheckTitle">
       <div class="modal-head">
@@ -3047,6 +3165,13 @@
       </div>
       <div class="modal-body" style="padding: 16px 0;">
         <div class="bom-copy-list" id="orderCheckOrderList" style="margin: 0 16px 14px;"></div>
+        <div id="orderCheckPpFilterBar" style="margin: 0 16px 12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <label style="font-size:11px; font-weight:800; color:var(--muted); white-space:nowrap; line-height:1.2;">Lọc mã phần cứng PP<span style="display:block; font-weight:600;">Filter PP code</span></label>
+          <input class="control" id="orderCheckPpFilter" list="orderCheckPpFilterList" placeholder="Nhập mã, cách nhau bằng dấu phẩy / Comma-separated" style="flex:1; min-width:240px; height:34px;" autocomplete="off">
+          <span id="orderCheckPpFilterCount" style="font-size:11px; font-weight:800; color:var(--muted); white-space:nowrap;"></span>
+          <button class="mini-action danger" id="orderCheckPpFilterClear" type="button">Xóa lọc<span>Reset</span></button>
+        </div>
+        <datalist id="orderCheckPpFilterList"></datalist>
         <div class="table-shell compact" style="margin: 0; border-left: 0; border-right: 0; background: transparent;">
           <div class="table-wrap">
             <table id="orderCheckResultTable">
@@ -3959,6 +4084,34 @@
       managedAccounts: "Tài khoản"
     };
 
+    // Ảnh dữ liệu đã lưu gần nhất (chuỗi JSON) giữ trong bộ nhớ để không phải đọc/parse lại localStorage mỗi lần lưu.
+    let lastPersistedPayloadString = null;
+    // Điểm khôi phục cho lịch sử thao tác: chỉ giữ trong phiên làm việc, KHÔNG nhúng vào payload để tránh phình localStorage.
+    const auditRestoreSnapshots = new Map();
+
+    function createAuditEntryLite(changedAreas) {
+      const areas = Array.isArray(changedAreas) && changedAreas.length ? changedAreas : ["Cập nhật dữ liệu"];
+      return {
+        id: `audit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        at: new Date().toISOString(),
+        user: getAuditActorName(),
+        role: currentUserRole,
+        areas,
+        summary: areas.length === 1 ? `Thay đổi ${areas[0]}` : `Thay đổi ${areas.length} khu vực`
+      };
+    }
+
+    function pruneAuditRestoreSnapshots() {
+      const liveIds = new Set(auditHistory.map((entry) => entry.id));
+      for (const id of Array.from(auditRestoreSnapshots.keys())) {
+        if (!liveIds.has(id)) auditRestoreSnapshots.delete(id);
+      }
+    }
+
+    function areaLabelForPayloadKey(payloadKey) {
+      return AUDIT_AREA_LABELS[payloadKey] || payloadKey;
+    }
+
     function clonePlain(value) {
       return JSON.parse(JSON.stringify(value ?? null));
     }
@@ -4009,15 +4162,21 @@
         tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); font-weight:800; padding:18px;">${uiText("No activity history yet.", "Chưa có lịch sử thao tác.")}</td></tr>`;
         return;
       }
-      tbody.innerHTML = auditHistory.map((entry) => `
+      tbody.innerHTML = auditHistory.map((entry) => {
+        const canRestore = auditRestoreSnapshots.has(entry.id);
+        const restoreButton = canRestore
+          ? `<button class="mini-action primary" type="button" data-audit-restore="${escapeAccountHtml(entry.id)}">Khôi phục</button>`
+          : `<button class="mini-action" type="button" disabled title="Chỉ khôi phục được trong phiên làm việc chưa tải lại trang.">Không khả dụng</button>`;
+        return `
         <tr>
           <td>${new Date(entry.at).toLocaleString()}</td>
           <td style="font-weight:900; color:#ffffff;">${escapeAccountHtml(entry.user || "-")}</td>
           <td>${escapeAccountHtml((entry.areas || []).join(", "))}</td>
           <td>${escapeAccountHtml(entry.summary || "-")}</td>
-          <td><button class="mini-action primary" type="button" data-audit-restore="${escapeAccountHtml(entry.id)}">Khôi phục</button></td>
+          <td>${restoreButton}</td>
         </tr>
-      `).join("");
+      `;
+      }).join("");
     }
 
     function restoreAuditEntry(entryId) {
@@ -4026,28 +4185,41 @@
         return;
       }
       const entry = auditHistory.find((item) => item.id === entryId);
-      if (!entry?.beforePayload) return;
+      if (!entry) return;
+      const snapshotString = auditRestoreSnapshots.get(entryId);
+      if (!snapshotString) {
+        showToast("Bản khôi phục này không còn khả dụng sau khi tải lại trang.");
+        return;
+      }
       requestConfirmation({
         title: "Xác nhận khôi phục",
         subtitle: "Trả dữ liệu về trước thao tác đã chọn",
         message: `Khôi phục dữ liệu về trước thao tác của ${entry.user || "-"} lúc ${new Date(entry.at).toLocaleString()}?`,
         confirmText: "Khôi phục",
         onConfirm: () => {
+          let beforePayload;
+          try {
+            beforePayload = unwrapAppDataPayload(JSON.parse(snapshotString));
+          } catch (error) {
+            showToast("Không đọc được dữ liệu khôi phục.");
+            return;
+          }
+          // Ảnh dữ liệu hiện tại (trước khi khôi phục) để cho phép hoàn tác lại chính thao tác khôi phục.
+          const beforeRestoreString = lastPersistedPayloadString;
           const preservedHistory = auditHistory.slice();
-          const restorePayload = { ...clonePlain(entry.beforePayload), auditHistory: preservedHistory };
+          const restorePayload = { ...clonePlain(beforePayload), auditHistory: preservedHistory };
           applyAppDataPayload(restorePayload);
-          auditHistory = [
-            {
-              id: `audit-${Date.now()}-restore`,
-              at: new Date().toISOString(),
-              user: getAuditActorName(),
-              role: currentUserRole,
-              areas: ["Khôi phục dữ liệu"],
-              summary: `Khôi phục về trước thao tác của ${entry.user || "-"}`,
-              beforePayload: stripAuditPayload(buildAppDataPayload())
-            },
-            ...preservedHistory
-          ].slice(0, AUDIT_HISTORY_LIMIT);
+          const restoreEntry = {
+            id: `audit-${Date.now()}-restore`,
+            at: new Date().toISOString(),
+            user: getAuditActorName(),
+            role: currentUserRole,
+            areas: ["Khôi phục dữ liệu"],
+            summary: `Khôi phục về trước thao tác của ${entry.user || "-"}`
+          };
+          auditHistory = [restoreEntry, ...preservedHistory].slice(0, AUDIT_HISTORY_LIMIT);
+          if (beforeRestoreString) auditRestoreSnapshots.set(restoreEntry.id, beforeRestoreString);
+          pruneAuditRestoreSnapshots();
           cachedAppDataPayload = buildAppDataPayload();
           writeCachedAppDataPayload(cachedAppDataPayload, { skipAudit: true });
           refreshAllViewsAfterDataLoad();
@@ -4060,7 +4232,7 @@
 
     function saveManagedAccounts() {
       cachedAppDataPayload = buildAppDataPayload();
-      writeCachedAppDataPayload(cachedAppDataPayload);
+      writeCachedAppDataPayload(cachedAppDataPayload, { changedAreas: [AUDIT_AREA_LABELS.managedAccounts] });
       renderAccountManager();
       renderAuditHistory();
     }
@@ -4913,11 +5085,24 @@
       row.insertBefore(cell, usageCell || row.cells[9] || row.querySelector(".row-actions")?.closest("td"));
     }
 
+    function ensureHardwareSelectControl(row) {
+      if (!row || !row.closest("[data-hardware-table]")) return;
+      const actionCell = row.querySelector(".row-actions")?.closest("td");
+      if (!actionCell) return;
+      if (actionCell.querySelector("[data-row-select]")) return;
+      const label = document.createElement("label");
+      label.className = "hw-select";
+      label.title = "Chọn dòng này để xóa nhanh";
+      label.innerHTML = '<input type="checkbox" data-row-select>';
+      actionCell.insertBefore(label, actionCell.firstChild);
+    }
+
     function ensureHardwareUsageCell(row) {
       if (!row || !row.closest("[data-hardware-table]")) return;
       ensureHardwareTypeCell(row);
       const actionCell = row.querySelector(".row-actions")?.closest("td");
       if (!actionCell) return;
+      ensureHardwareSelectControl(row);
       if (row.querySelector("[data-hardware-usage-cell]")) {
         const cell = row.querySelector("[data-hardware-usage-cell]");
         if (!cell.querySelector("[data-hardware-usage]")) cell.innerHTML = renderHardwareUsageButton();
@@ -4936,6 +5121,77 @@
 
     function ensureHardwareUsageCells() {
       document.querySelectorAll("[data-hardware-table] tbody tr").forEach(ensureHardwareUsageCell);
+      updateHardwareBulkBar();
+    }
+
+    function getHardwareBulkTable() {
+      return document.querySelector("[data-hardware-table]");
+    }
+
+    function getHardwareRowCheckboxes(visibleOnly = false) {
+      const table = getHardwareBulkTable();
+      if (!table) return [];
+      return Array.from(table.tBodies[0]?.querySelectorAll("tr") || [])
+        .filter((row) => !visibleOnly || !row.classList.contains("is-hidden"))
+        .map((row) => row.querySelector("[data-row-select]"))
+        .filter(Boolean);
+    }
+
+    function updateHardwareBulkBar() {
+      const bar = document.getElementById("hardwareBulkBar");
+      if (!bar) return;
+      const allBoxes = getHardwareRowCheckboxes(false);
+      allBoxes.forEach((box) => {
+        box.closest("tr")?.classList.toggle("hw-row-selected", box.checked);
+      });
+      const checkedCount = allBoxes.filter((box) => box.checked).length;
+      const countEl = document.getElementById("hardwareBulkCount");
+      if (countEl) countEl.textContent = String(checkedCount);
+      bar.classList.toggle("is-active", checkedCount > 0);
+
+      const selectAll = document.querySelector("[data-hardware-select-all]");
+      if (selectAll) {
+        const visibleBoxes = getHardwareRowCheckboxes(true);
+        const visibleChecked = visibleBoxes.filter((box) => box.checked).length;
+        selectAll.checked = visibleBoxes.length > 0 && visibleChecked === visibleBoxes.length;
+        selectAll.indeterminate = visibleChecked > 0 && visibleChecked < visibleBoxes.length;
+      }
+    }
+
+    function clearHardwareSelection() {
+      getHardwareRowCheckboxes(false).forEach((box) => { box.checked = false; });
+      updateHardwareBulkBar();
+    }
+
+    function toggleAllHardwareSelection(checked) {
+      getHardwareRowCheckboxes(true).forEach((box) => { box.checked = checked; });
+      updateHardwareBulkBar();
+    }
+
+    function bulkDeleteHardwareRows() {
+      const checkedBoxes = getHardwareRowCheckboxes(false).filter((box) => box.checked);
+      if (!checkedBoxes.length) {
+        showToast("Chưa chọn dòng nào để xóa.");
+        return;
+      }
+      const count = checkedBoxes.length;
+      requestConfirmation({
+        title: "Xác nhận xóa",
+        subtitle: `Xóa ${count} mã phần cứng đã chọn`,
+        message: `Bạn có chắc muốn xóa ${count} dòng đã chọn không? Thao tác này không thể hoàn tác sau khi xác nhận.`,
+        confirmText: "Xóa",
+        onConfirm: () => {
+          const table = getHardwareBulkTable();
+          if (!table) return;
+          checkedBoxes.forEach((box) => box.closest("tr")?.remove());
+          updateCountForTable(table, Array.from(table.tBodies[0]?.rows || []).filter((item) => !item.classList.contains("is-hidden")).length);
+          updateStatusDashboard(table);
+          saveAppDataTableRows("[data-hardware-table]", "hardwareRows");
+          scheduleHardwareCatalogPostSave();
+          updateHardwareBulkBar();
+          showToast(`Đã xóa ${count} mã phần cứng.`);
+        }
+      });
     }
 
     const HARDWARE_PREVIEW_FOLDER = "Preview Hardware PP";
@@ -5546,6 +5802,7 @@
           if (isHardwareTable) {
             saveAppDataTableRows("[data-hardware-table]", "hardwareRows");
             scheduleHardwareCatalogPostSave();
+            updateHardwareBulkBar();
           } else {
             scheduleBomHardwareSuggestionsRefresh();
             refreshSheet2ItemCodeSuggestions();
@@ -5570,7 +5827,9 @@
       clone.dataset.copySourceCode = sourceValues.code;
       clone.dataset.copySourceName = sourceValues.name;
       clone.dataset.copyDraft = "true";
-      clone.classList.remove("is-hidden", "editing-row");
+      clone.classList.remove("is-hidden", "editing-row", "hw-row-selected");
+      const cloneSelect = clone.querySelector("[data-row-select]");
+      if (cloneSelect) cloneSelect.checked = false;
       clone.querySelectorAll("[contenteditable]").forEach((cell) => cell.removeAttribute("contenteditable"));
       row.after(clone);
       setRowActions(clone, "view");
@@ -7347,6 +7606,7 @@
           if (visible) visibleCount++;
         });
         updateCountForTable(document.querySelector("[data-hardware-table]"), visibleCount);
+        updateHardwareBulkBar();
       } else if (activeTab === "production-hardware") {
         scheduleProductionHardwareTableRefresh(0);
         const table = document.querySelector("[data-production-hardware-table]");
@@ -7848,6 +8108,52 @@
 
     let orderCheckContext = { type: "orders", workOrderNo: null };
     let orderCheckViewMode = "product";
+    let orderCheckPpFilterValue = "";
+    let orderCheckAvailablePps = [];
+
+    function getOrderCheckPpFilterTokens() {
+      return orderCheckPpFilterValue
+        .split(",")
+        .map((token) => token.replace(/\s+/g, " ").trim().toLowerCase())
+        .filter(Boolean);
+    }
+
+    function orderCheckRowMatchesPpFilter(row) {
+      const tokens = getOrderCheckPpFilterTokens();
+      if (!tokens.length) return true;
+      const pp = String(row.pp || "").replace(/\s+/g, " ").trim().toLowerCase();
+      if (!pp) return false;
+      return tokens.some((token) => pp.includes(token));
+    }
+
+    function updateOrderCheckPpFilterDatalist() {
+      const datalist = document.getElementById("orderCheckPpFilterList");
+      if (!datalist) return;
+      const raw = orderCheckPpFilterValue;
+      const lastComma = raw.lastIndexOf(",");
+      // Gợi ý cho mã kế tiếp: giữ nguyên phần đã nhập trước dấu phẩy cuối rồi ghép từng mã còn lại.
+      const prefix = lastComma >= 0 ? `${raw.slice(0, lastComma + 1)} ` : "";
+      const chosen = new Set(getOrderCheckPpFilterTokens());
+      datalist.innerHTML = orderCheckAvailablePps
+        .filter((pp) => !chosen.has(pp.toLowerCase()))
+        .map((pp) => `<option value="${escapeAccountHtml(`${prefix}${pp}`)}"></option>`)
+        .join("");
+    }
+
+    function updateOrderCheckPpFilterCount(shownCount, totalCount) {
+      const countEl = document.getElementById("orderCheckPpFilterCount");
+      if (!countEl) return;
+      countEl.textContent = getOrderCheckPpFilterTokens().length
+        ? `Hiện ${shownCount.toLocaleString()}/${totalCount.toLocaleString()} dòng`
+        : "";
+    }
+
+    function resetOrderCheckPpFilter() {
+      orderCheckPpFilterValue = "";
+      const input = document.getElementById("orderCheckPpFilter");
+      if (input) input.value = "";
+      updateOrderCheckPpFilterDatalist();
+    }
 
     function syncOrderCheckViewSwitch() {
       document.querySelectorAll("[data-order-check-view]").forEach(button => {
@@ -8165,6 +8471,7 @@
             availableQty: 0,
             shortageQty: 0,
             productRefs: new Set(),
+            productBreakdown: new Map(),
             isSummary: true
           });
         }
@@ -8172,7 +8479,19 @@
         item.requiredQty += Number(row.requiredQty) || 0;
         item.availableQty += Number(row.availableQty) || 0;
         item.shortageQty += Number(row.shortageQty) || 0;
-        item.productRefs.add(row.productCode);
+        // Chuẩn hoá mã sản phẩm (bỏ mọi khoảng trắng + hạ chữ) để đếm và gộp nhất quán,
+        // tránh cùng một mã bị tính thành nhiều dòng do khác khoảng trắng/hoa-thường.
+        const productKey = String(row.productCode || "").replace(/\s+/g, "").toLowerCase();
+        item.productRefs.add(productKey);
+        // Gộp số lượng cần theo từng mã sản phẩm để liệt kê chi tiết.
+        if (!item.productBreakdown.has(productKey)) {
+          item.productBreakdown.set(productKey, {
+            code: String(row.productCode || "-").replace(/\s+/g, " ").trim() || "-",
+            name: String(row.productName || "-").replace(/\s+/g, " ").trim() || "-",
+            qty: 0
+          });
+        }
+        item.productBreakdown.get(productKey).qty += Number(row.requiredQty) || 0;
       });
       return Array.from(summary.values()).sort((a, b) => {
         if (b.shortageQty !== a.shortageQty) return b.shortageQty - a.shortageQty;
@@ -8187,38 +8506,88 @@
       const detailRows = orderCheckContext.type === "workOrder"
         ? buildWorkOrderCheckRows(orderCheckContext.workOrderNo)
         : buildOrderCheckRows(getSelectedOrderCheckIndexes());
-      const rows = orderCheckViewMode === "shortage" ? buildOrderCheckShortageSummary(detailRows) : detailRows;
+      // Cập nhật danh sách mã PP có sẵn (chưa lọc) để gợi ý autocomplete cho ô lọc.
+      orderCheckAvailablePps = Array.from(new Set(
+        detailRows.map((row) => String(row.pp || "").replace(/\s+/g, " ").trim()).filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b, "vi", { sensitivity: "base" }));
+      updateOrderCheckPpFilterDatalist();
+      const baseRows = orderCheckViewMode === "shortage" ? buildOrderCheckShortageSummary(detailRows) : detailRows;
       if (orderCheckContext.type !== "workOrder" && !getSelectedOrderCheckIndexes().length) {
+        updateOrderCheckPpFilterCount(0, 0);
         tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Vui lòng chọn ít nhất một đơn hàng.</td></tr>`;
         return;
       }
-      if (!rows.length) {
+      if (!baseRows.length) {
+        updateOrderCheckPpFilterCount(0, 0);
         tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Không tìm thấy BOM cho dữ liệu đã chọn.</td></tr>`;
+        return;
+      }
+      const rows = baseRows.filter(orderCheckRowMatchesPpFilter);
+      updateOrderCheckPpFilterCount(rows.length, baseRows.length);
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); font-weight:800; padding:22px;">Không có mã phần cứng PP nào khớp bộ lọc.</td></tr>`;
         return;
       }
       let currentProduct = "";
       tbody.innerHTML = rows.map(row => {
         const productKey = String(row.productCode || "").toLowerCase();
         const productHeader = orderCheckViewMode === "product" && productKey !== currentProduct
-          ? `<tr class="order-check-product-row"><td colspan="9">SẢN PHẨM: ${row.productCode} — ${row.productName} | Số lượng sản xuất: ${row.productQty.toLocaleString()}</td></tr>`
+          ? `<tr class="order-check-product-row" data-product-code="${escapeAccountHtml(row.productCode || "")}"><td colspan="9"><div class="order-check-product-head">${renderProductPreviewBox(row.productCode)}<span>SẢN PHẨM: ${row.productCode} — ${row.productName} | Số lượng sản xuất: ${row.productQty.toLocaleString()}</span></div></td></tr>`
           : "";
         currentProduct = productKey;
-        const issueLabel = orderCheckViewMode === "shortage"
-          ? `Dùng cho ${row.productRefs.size.toLocaleString()} sản phẩm`
-          : `${row.supplyType} — Ưu tiên ${row.priority}${row.priority > 1 ? `<br>Cho mã chính: ${row.sourceMainPp}` : ""}`;
+        const isShortage = orderCheckViewMode === "shortage";
+        const breakdown = isShortage ? getOrderCheckBreakdownList(row) : [];
+        const issueCell = isShortage
+          ? `<div class="order-check-usage-wrap"><span class="badge ${row.shortageQty > 0 ? "red" : "green"}">Dùng cho ${breakdown.length.toLocaleString()} sản phẩm</span>${breakdown.length ? `<button class="mini-action order-check-usage-btn" type="button" data-order-check-usage title="Xem chi tiết từng mã sản phẩm">...</button>` : ""}</div>`
+          : `<span class="badge ${row.priority === 1 ? "green" : "yellow"}">${row.supplyType} — Ưu tiên ${row.priority}${row.priority > 1 ? `<br>Cho mã chính: ${row.sourceMainPp}` : ""}</span>`;
+        const breakdownAttr = isShortage && breakdown.length
+          ? ` data-order-check-breakdown="${escapeAccountHtml(JSON.stringify(breakdown))}" data-order-check-name="${escapeAccountHtml(`${row.name || ""} ${row.pp && row.pp !== "-" ? row.pp : row.fw || ""}`.trim())}"`
+          : "";
         return `${productHeader}
-          <tr>
+          <tr${breakdownAttr}>
             <td>${renderHardwarePreviewBox(row.pp)}</td>
             <td>${row.name}</td>
             <td>${row.fw}</td>
             <td>${row.pp}</td>
-            <td><span class="badge ${orderCheckViewMode === "shortage" ? (row.shortageQty > 0 ? "red" : "green") : (row.priority === 1 ? "green" : "yellow")}">${issueLabel}</span></td>
+            <td>${issueCell}</td>
             <td>${row.uom}</td>
             <td>${row.requiredQty.toLocaleString()}</td>
             <td>${row.availableQty.toLocaleString()}</td>
             <td>${row.shortageQty > 0 ? `<span class="badge red">${row.shortageQty.toLocaleString()}</span>` : `<span class="badge green">0</span>`}</td>
           </tr>`;
       }).join("");
+    }
+
+    function getOrderCheckBreakdownList(row) {
+      if (!row || !(row.productBreakdown instanceof Map)) return [];
+      return Array.from(row.productBreakdown.values())
+        .filter((item) => (Number(item.qty) || 0) > 0 || item.code)
+        .sort((a, b) => (Number(b.qty) || 0) - (Number(a.qty) || 0)
+          || String(a.code).localeCompare(String(b.code), "vi", { sensitivity: "base" }));
+    }
+
+    function openOrderCheckBreakdown(tr) {
+      const body = document.getElementById("orderCheckBreakdownBody");
+      const title = document.getElementById("orderCheckBreakdownTitle");
+      if (!body || !tr) return;
+      let breakdown = [];
+      try {
+        breakdown = JSON.parse(tr.dataset.orderCheckBreakdown || "[]");
+      } catch (error) {
+        breakdown = [];
+      }
+      if (title && title.firstChild) {
+        title.firstChild.textContent = `Chi tiết theo sản phẩm: ${tr.dataset.orderCheckName || "Vật tư"}`;
+      }
+      body.innerHTML = breakdown.length
+        ? breakdown.map((item) => `
+            <tr>
+              <td style="font-weight:900; color:#ffffff;">${escapeAccountHtml(item.code || "-")}</td>
+              <td>${escapeAccountHtml(item.name || "-")}</td>
+              <td style="font-weight:900;">${Number(item.qty || 0).toLocaleString()}</td>
+            </tr>`).join("")
+        : `<tr><td colspan="3" style="text-align:center; padding:18px; color:var(--muted); font-weight:800;">Không có dữ liệu chi tiết.</td></tr>`;
+      openModal("orderCheckBreakdownModal");
     }
 
     function refreshOpenOrderCheckResults() {
@@ -8233,6 +8602,7 @@
       const titleEl = document.getElementById("orderCheckTitle");
       if (titleEl) titleEl.innerHTML = `Kiểm Tra Vật Tư Đơn Hàng<span>Chọn đơn hàng và đối chiếu BOM với tồn kho khả dụng</span>`;
       const index = Number.isInteger(Number(orderIndex)) ? Number(orderIndex) : activeOrderIndex;
+      resetOrderCheckPpFilter();
       renderOrderCheckOrderList(index);
       renderOrderCheckResults();
       openModal("orderCheckModal");
@@ -8243,6 +8613,7 @@
       orderCheckContext = { type: "workOrder", workOrderNo: woNo };
       const titleEl = document.getElementById("orderCheckTitle");
       if (titleEl) titleEl.innerHTML = `Kiểm Tra Vật Tư Lệnh Sản Xuất<span>Đối chiếu BOM theo số lượng trong lệnh sản xuất</span>`;
+      resetOrderCheckPpFilter();
       renderOrderCheckOrderList();
       renderOrderCheckResults();
       openModal("orderCheckModal");
@@ -8252,11 +8623,16 @@
       orderCheckViewMode = mode;
       renderOrderCheckResults();
       const bodyRows = Array.from(document.querySelectorAll("#orderCheckResultBody tr"));
+      // Thứ tự cột báo cáo: bỏ 'Mã phần cứng FW', đưa 'Mã PP' lên trước 'Tên hàng'. 8 cột (A..H).
+      const COL_COUNT = 8;
+      const LAST_COL = COL_COUNT - 1;
+      // Ánh xạ cột báo cáo -> chỉ số ô trên bảng màn hình (null = ô ảnh để trống).
+      const SOURCE_CELL_INDEX = [null, 3, 1, 4, 5, 6, 7, 8];
+      const ISSUE_COL = 3; // cột 'Thứ tự cấp' trong bố cục mới
       const headers = [
         "Hình ảnh / Preview",
-        "Tên hàng / Item name",
-        "Mã phần cứng FW / FW hardware code",
         "Mã phần cứng PP / PP hardware code",
+        "Tên hàng / Item name",
         "Thứ tự cấp / Issue priority",
         "Đơn vị / UOM",
         "Số lượng cần / Required qty",
@@ -8277,28 +8653,54 @@
         headers
       ];
       const merges = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: 8 } },
-        { s: { r: 3, c: 0 }, e: { r: 3, c: 8 } }
+        { s: { r: 0, c: 0 }, e: { r: 0, c: LAST_COL } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: LAST_COL } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: LAST_COL } },
+        { s: { r: 3, c: 0 }, e: { r: 3, c: LAST_COL } }
       ];
       const imageAnchors = [];
+      const productHeaderRowIndices = [];
+      const dataRowIndices = [];
+      const rowHeights = {};
 
       bodyRows.forEach((row) => {
         if (row.classList.contains("order-check-product-row")) {
           const excelRowIndex = rows.length;
-          rows.push([repairVietnameseMojibake(row.innerText.replace(/\s+/g, " ").trim())]);
-          merges.push({ s: { r: excelRowIndex, c: 0 }, e: { r: excelRowIndex, c: 8 } });
+          productHeaderRowIndices.push(excelRowIndex);
+          // Cột A để trống cho ảnh sản phẩm; chữ tiêu đề gộp ô B..cuối.
+          rows.push(["", repairVietnameseMojibake(row.innerText.replace(/\s+/g, " ").trim())]);
+          merges.push({ s: { r: excelRowIndex, c: 1 }, e: { r: excelRowIndex, c: LAST_COL } });
+          rowHeights[excelRowIndex] = 70;
+          const productCode = (row.dataset.productCode || "").replace(/\s+/g, " ").trim();
+          const productImageUrl = productCode ? getProductPreviewExcelUrl(productCode) : "";
+          if (productImageUrl) {
+            imageAnchors.push({
+              row: excelRowIndex,
+              col: 0,
+              imageUrl: productImageUrl,
+              name: productCode || "Product"
+            });
+          }
           return;
         }
         if (row.cells.length < 9) return;
         const excelRowIndex = rows.length;
-        const values = [""];
-        for (let columnIndex = 1; columnIndex < 9; columnIndex += 1) {
-          const text = row.cells[columnIndex]?.innerText.replace(/\s+/g, " ").trim() || "";
-          values.push(repairVietnameseMojibake(text));
+        const values = SOURCE_CELL_INDEX.map((cellIndex) => cellIndex === null
+          ? ""
+          : repairVietnameseMojibake(row.cells[cellIndex]?.innerText.replace(/\s+/g, " ").trim() || ""));
+        // Ở chế độ Gộp tổng: liệt kê rõ từng mã sản phẩm và số lượng cần vào cột "Thứ tự cấp".
+        let breakdownLineCount = 0;
+        if (mode === "shortage" && row.dataset.orderCheckBreakdown) {
+          let breakdown = [];
+          try { breakdown = JSON.parse(row.dataset.orderCheckBreakdown); } catch (error) { breakdown = []; }
+          if (breakdown.length) {
+            const lines = breakdown.map((item) => `• ${repairVietnameseMojibake(String(item.code || "-"))}: ${Number(item.qty || 0).toLocaleString()}`);
+            values[ISSUE_COL] = `Dùng cho ${breakdown.length} sản phẩm:\n${lines.join("\n")}`;
+            breakdownLineCount = breakdown.length + 1;
+          }
         }
         rows.push(values);
+        dataRowIndices.push(excelRowIndex);
         const ppCode = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
         const imageUrl = getHardwarePreviewExcelUrl(ppCode);
         if (imageUrl) {
@@ -8309,17 +8711,36 @@
             name: ppCode || values[2] || values[1] || "Preview"
           });
         }
+        // Chiều cao dòng: đủ cho ảnh (70) và cho danh sách mã sản phẩm nếu có.
+        rowHeights[excelRowIndex] = Math.max(70, breakdownLineCount * 15 + 6);
       });
 
       const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      // Độ rộng cột: ảnh, Mã PP, Tên hàng, Thứ tự cấp, Đơn vị, SL cần, SL khả dụng, SL thiếu.
       worksheet["!cols"] = [
-        { wch: 16 }, { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 28 },
-        { wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 18 }
+        { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 34 },
+        { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 16 }
       ];
-      worksheet["!rows"] = rows.map((_, rowIndex) => imageAnchors.some((anchor) => anchor.row === rowIndex) ? { hpt: 70 } : {});
+      const headerRowIndex = 4;
+      rowHeights[headerRowIndex] = 30;
+      worksheet["!rows"] = rows.map((_, rowIndex) => rowHeights[rowIndex] ? { hpt: rowHeights[rowIndex] } : {});
       worksheet["!merges"] = merges;
-      worksheet["!autofilter"] = { ref: `A5:I${rows.length}` };
-      return { worksheet, imageAnchors, itemCount: imageAnchors.length || bodyRows.filter((row) => !row.classList.contains("order-check-product-row") && row.cells.length >= 9).length };
+      const lastColLetter = XLSX.utils.encode_col(LAST_COL);
+      worksheet["!autofilter"] = { ref: `A5:${lastColLetter}${rows.length}` };
+      const wrapCells = mode === "shortage" ? dataRowIndices.map((r) => ({ r, c: ISSUE_COL })) : [];
+      return {
+        worksheet,
+        imageAnchors,
+        styleSpec: {
+          columns: COL_COUNT,
+          titleRows: [0, 1, 2, 3],
+          headerRow: headerRowIndex,
+          bannerRows: productHeaderRowIndices,
+          dataRows: dataRowIndices,
+          wrapCells
+        },
+        itemCount: imageAnchors.length || bodyRows.filter((row) => !row.classList.contains("order-check-product-row") && row.cells.length >= 9).length
+      };
     }
 
     async function exportOrderCheckReport() {
@@ -8331,6 +8752,7 @@
       const previousMode = orderCheckViewMode;
       const workbook = XLSX.utils.book_new();
       const imageAnchorsBySheet = new Map();
+      const reportStylesBySheet = new Map();
       const exportSheets = [
         { mode: "product", name: "Theo san pham" },
         { mode: "shortage", name: "Gop tong phan cung" }
@@ -8342,6 +8764,7 @@
           totalItemCount += result.itemCount;
           XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
           imageAnchorsBySheet.set(name, result.imageAnchors);
+          if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
         });
       } finally {
         orderCheckViewMode = previousMode;
@@ -8356,7 +8779,7 @@
       const stamp = new Date().toISOString().slice(0, 10);
       const filename = `firstwood-order-material-check-${stamp}.xlsx`;
       try {
-        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet);
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet, reportStylesBySheet);
         showToast(hasEmbeddedImages
           ? "Đã xuất báo cáo kiểm tra vật tư thành 2 sheet kèm hình ảnh."
           : "Đã xuất báo cáo kiểm tra vật tư thành 2 sheet nhưng không tìm thấy ảnh phù hợp.");
@@ -8671,16 +9094,22 @@
           if (hardwarePostSync) {
             updatedRows = syncBomHardwareFields(hardwarePostSync.oldHardware, hardwarePostSync.newHardware);
           }
-          if (hardwarePpChanged) sortHardwareRowsWithBlankPpLast();
+          // Chỉ sắp xếp lại (làm đổi thứ tự dòng) khi mã PP thay đổi.
+          const hardwareRowsReordered = hardwarePpChanged;
+          if (hardwareRowsReordered) sortHardwareRowsWithBlankPpLast();
           scheduleBomHardwareSuggestionsRefresh();
           scheduleSheet2ItemCodeSuggestionsRefresh();
           scheduleProductionHardwareTableRefresh(180);
           scheduleWarehouseStockRefresh(350);
+          // Các bản lưu dưới đây là hệ quả của thao tác đã được ghi nhật ký ở lần lưu tức thời → skipAudit tránh ghi trùng.
           if (updatedRows) {
             scheduleBomSelectionRefresh(document.querySelector(".bom-product-card.active")?.dataset.bomCard);
-            saveAppDataTableRows("[data-bom-body]", "bomRows", "[data-bom-entry-row]");
+            saveAppDataTableRows("[data-bom-body]", "bomRows", "[data-bom-entry-row]", { skipAudit: true });
           }
-          saveAppDataTableRows("[data-hardware-table]", "hardwareRows");
+          // Lần lưu tức thời trước đó đã ghi dữ liệu phần cứng; chỉ lưu lại khi thứ tự dòng thực sự đổi do sắp xếp.
+          if (hardwareRowsReordered) {
+            saveAppDataTableRows("[data-hardware-table]", "hardwareRows", "", { skipAudit: true });
+          }
           schedulePortableDataFileSave();
         };
         if ("requestIdleCallback" in window) {
@@ -9554,7 +9983,7 @@
       try {
         const payload = updateCachedTableRows("[data-bom-body]", "bomRows", "[data-bom-entry-row]");
         payload.savedAt = new Date().toISOString();
-        writeCachedAppDataPayload(payload);
+        writeCachedAppDataPayload(payload, { changedAreas: [AUDIT_AREA_LABELS.bomRows] });
         schedulePortableDataFileSave();
         if (pendingSupabasePayload) void flushSupabaseSave();
         return true;
@@ -10011,7 +10440,107 @@
       return canvasImage;
     }
 
-    async function writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet = new Map()) {
+    function setCellXmlStyle(cellXml, xfIndex) {
+      if (/<c\b[^>]*\bs="\d+"/.test(cellXml)) {
+        return cellXml.replace(/(<c\b[^>]*?)\bs="\d+"/, `$1s="${xfIndex}"`);
+      }
+      return cellXml.replace(/<c\b/, `<c s="${xfIndex}"`);
+    }
+
+    function appendToCountedSection(xml, tag, itemsXml) {
+      const re = new RegExp(`<${tag} count="(\\d+)">([\\s\\S]*?)<\\/${tag}>`);
+      const match = xml.match(re);
+      const addCount = (itemsXml.match(/<(?:font|fill|border|xf)\b/g) || []).length;
+      if (match) {
+        const count = Number(match[1]) || 0;
+        const newXml = `<${tag} count="${count + addCount}">${match[2]}${itemsXml}</${tag}>`;
+        return { xml: xml.replace(match[0], newXml), base: count };
+      }
+      const newXml = `<${tag} count="${addCount}">${itemsXml}</${tag}>`;
+      return { xml: xml.replace(/<\/styleSheet>/, `${newXml}</styleSheet>`), base: 0 };
+    }
+
+    // SheetJS bản cộng đồng không ghi cell style; tự chèn font/fill/border/xf vào styles.xml rồi gán chỉ số cho ô.
+    function buildReportStyles(stylesXml) {
+      let xml = stylesXml;
+      // Fonts: 0 mặc định; thêm 1=đậm xanh đậm, 2=đậm trắng.
+      const fontsRes = appendToCountedSection(xml, "fonts",
+        `<font><b/><sz val="11"/><color rgb="FF1F3864"/><name val="Calibri"/></font>` +
+        `<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>`);
+      xml = fontsRes.xml;
+      const fontBold = fontsRes.base;
+      const fontBoldWhite = fontsRes.base + 1;
+      // Fills: 0/1 mặc định; thêm header (xanh đậm) và banner (xanh nhạt).
+      const fillsRes = appendToCountedSection(xml, "fills",
+        `<fill><patternFill patternType="solid"><fgColor rgb="FF305496"/><bgColor indexed="64"/></patternFill></fill>` +
+        `<fill><patternFill patternType="solid"><fgColor rgb="FFBDD7EE"/><bgColor indexed="64"/></patternFill></fill>`);
+      xml = fillsRes.xml;
+      const fillHeader = fillsRes.base;
+      const fillBanner = fillsRes.base + 1;
+      // Borders: thêm 1 viền mảnh 4 cạnh.
+      const bordersRes = appendToCountedSection(xml, "borders",
+        `<border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border>`);
+      xml = bordersRes.xml;
+      const borderThin = bordersRes.base;
+      // cellXfs: data, header, banner, title, wrap.
+      const xfsRes = appendToCountedSection(xml, "cellXfs",
+        `<xf numFmtId="0" fontId="0" fillId="0" borderId="${borderThin}" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="${fontBoldWhite}" fillId="${fillHeader}" borderId="${borderThin}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>` +
+        `<xf numFmtId="0" fontId="${fontBold}" fillId="${fillBanner}" borderId="${borderThin}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="${fontBold}" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
+        `<xf numFmtId="0" fontId="0" fillId="0" borderId="${borderThin}" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>`);
+      xml = xfsRes.xml;
+      const base = xfsRes.base;
+      return {
+        xml,
+        styles: { data: base, header: base + 1, banner: base + 2, title: base + 3, wrap: base + 4 }
+      };
+    }
+
+    function applyReportStylesToSheetXml(sheetXml, spec, styles, columnsCount) {
+      const rowStyle = new Map();
+      (spec.titleRows || []).forEach((r) => rowStyle.set(r + 1, styles.title));
+      if (Number.isInteger(spec.headerRow)) rowStyle.set(spec.headerRow + 1, styles.header);
+      (spec.dataRows || []).forEach((r) => rowStyle.set(r + 1, styles.data));
+      (spec.bannerRows || []).forEach((r) => rowStyle.set(r + 1, styles.banner));
+      const cellOverride = new Map();
+      (spec.wrapCells || []).forEach(({ r, c }) => cellOverride.set(`${r + 1}|${c}`, styles.wrap));
+
+      let xml = sheetXml;
+      rowStyle.forEach((defaultXf, rowNum) => {
+        const rowRe = new RegExp(`(<row\\b[^>]*\\br="${rowNum}"[^>]*>)([\\s\\S]*?)(</row>)`);
+        const match = xml.match(rowRe);
+        if (!match) return;
+        const [whole, openTag, inner, closeTag] = match;
+        const openTagFixed = /\bspans="[^"]*"/.test(openTag)
+          ? openTag.replace(/\bspans="[^"]*"/, `spans="1:${columnsCount}"`)
+          : openTag;
+        const cellRe = /<c\b[^>]*?\br="([A-Z]+)\d+"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g;
+        const cellByCol = new Map();
+        let cellMatch;
+        while ((cellMatch = cellRe.exec(inner))) {
+          cellByCol.set(cellMatch[1], cellMatch[0]);
+        }
+        const existingCols = Array.from(cellByCol.keys()).map((col) => XLSX.utils.decode_col(col));
+        const maxCol = Math.max(columnsCount - 1, ...(existingCols.length ? existingCols : [0]));
+        const cellXmls = [];
+        for (let c = 0; c <= maxCol; c += 1) {
+          const colLetter = XLSX.utils.encode_col(c);
+          const xf = cellOverride.has(`${rowNum}|${c}`) ? cellOverride.get(`${rowNum}|${c}`) : defaultXf;
+          const existing = cellByCol.get(colLetter);
+          if (existing) {
+            cellXmls.push(setCellXmlStyle(existing, xf));
+          } else if (c < columnsCount) {
+            cellXmls.push(`<c r="${colLetter}${rowNum}" s="${xf}"/>`);
+          }
+        }
+        const replacement = `${openTagFixed}${cellXmls.join("")}${closeTag}`;
+        xml = xml.replace(whole, () => replacement);
+      });
+      return xml;
+    }
+
+    async function writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet = new Map(), reportStylesBySheet = new Map()) {
       if (!window.CompressionStream || !window.DecompressionStream) {
         writeWorkbookXlsx(workbook, filename);
         return false;
@@ -10028,45 +10557,66 @@
       contentTypes = ensureContentTypeDefault(contentTypes, "png", "image/png");
       contentTypes = ensureContentTypeDefault(contentTypes, "webp", "image/webp");
 
+      // Chuẩn bị bộ style báo cáo (viền, màu header, banner...) một lần dùng chung cho mọi sheet.
+      let reportStyles = null;
+      const stylesPath = "xl/styles.xml";
+      const hasAnyReportStyle = Array.from(reportStylesBySheet.values()).some(Boolean);
+      if (hasAnyReportStyle && entries.has(stylesPath)) {
+        const built = buildReportStyles(stringFromUint8(entries.get(stylesPath)));
+        reportStyles = built.styles;
+        entries.set(stylesPath, uint8FromString(built.xml));
+      }
+
       for (let sheetNumber = 1; sheetNumber <= sheetNames.length; sheetNumber += 1) {
         const sheetName = sheetNames[sheetNumber - 1];
         const anchors = imageAnchorsBySheet.get(sheetName) || [];
-        if (!anchors.length) continue;
-        const drawingImages = [];
-        for (const anchor of anchors) {
-          const image = await fetchImageForWorkbook(anchor.imageUrl, anchor.name);
-          if (!image) continue;
-          const mediaName = `image${mediaIndex}.${image.extension}`;
-          mediaIndex += 1;
-          entries.set(`xl/media/${mediaName}`, image.bytes);
-          drawingImages.push({ ...anchor, mediaName, contentType: image.contentType });
-        }
-        if (!drawingImages.length) continue;
-
-        const drawingName = `drawing${drawingIndex}.xml`;
-        drawingIndex += 1;
-        const drawingPath = `xl/drawings/${drawingName}`;
-        entries.set(drawingPath, uint8FromString(buildDrawingXml(drawingImages)));
-        entries.set(`xl/drawings/_rels/${drawingName}.rels`, uint8FromString(buildDrawingRelsXml(drawingImages)));
-        contentTypes = ensureContentTypeOverride(contentTypes, `/xl/drawings/${drawingName}`, "application/vnd.openxmlformats-officedocument.drawing+xml");
+        const styleSpec = reportStylesBySheet.get(sheetName);
+        const hasStyleSpec = Boolean(reportStyles && styleSpec);
+        if (!anchors.length && !hasStyleSpec) continue;
 
         const sheetPath = `xl/worksheets/sheet${sheetNumber}.xml`;
         let sheetXml = stringFromUint8(entries.get(sheetPath));
-        if (!/xmlns:r=/.test(sheetXml)) {
-          sheetXml = sheetXml.replace("<worksheet ", '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ');
+
+        if (anchors.length) {
+          const drawingImages = [];
+          for (const anchor of anchors) {
+            const image = await fetchImageForWorkbook(anchor.imageUrl, anchor.name);
+            if (!image) continue;
+            const mediaName = `image${mediaIndex}.${image.extension}`;
+            mediaIndex += 1;
+            entries.set(`xl/media/${mediaName}`, image.bytes);
+            drawingImages.push({ ...anchor, mediaName, contentType: image.contentType });
+          }
+          if (drawingImages.length) {
+            const drawingName = `drawing${drawingIndex}.xml`;
+            drawingIndex += 1;
+            const drawingPath = `xl/drawings/${drawingName}`;
+            entries.set(drawingPath, uint8FromString(buildDrawingXml(drawingImages)));
+            entries.set(`xl/drawings/_rels/${drawingName}.rels`, uint8FromString(buildDrawingRelsXml(drawingImages)));
+            contentTypes = ensureContentTypeOverride(contentTypes, `/xl/drawings/${drawingName}`, "application/vnd.openxmlformats-officedocument.drawing+xml");
+
+            if (!/xmlns:r=/.test(sheetXml)) {
+              sheetXml = sheetXml.replace("<worksheet ", '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ');
+            }
+            const sheetRelsPath = `xl/worksheets/_rels/sheet${sheetNumber}.xml.rels`;
+            let relsXml = entries.has(sheetRelsPath)
+              ? stringFromUint8(entries.get(sheetRelsPath))
+              : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+            const relId = getNextRelationshipId(relsXml);
+            relsXml = relsXml.replace("</Relationships>", `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/${drawingName}"/></Relationships>`);
+            if (!sheetXml.includes("<drawing ")) {
+              sheetXml = sheetXml.replace("</worksheet>", `<drawing r:id="${relId}"/></worksheet>`);
+            }
+            entries.set(sheetRelsPath, uint8FromString(relsXml));
+            insertedImageCount += drawingImages.length;
+          }
         }
-        const sheetRelsPath = `xl/worksheets/_rels/sheet${sheetNumber}.xml.rels`;
-        let relsXml = entries.has(sheetRelsPath)
-          ? stringFromUint8(entries.get(sheetRelsPath))
-          : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
-        const relId = getNextRelationshipId(relsXml);
-        relsXml = relsXml.replace("</Relationships>", `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/${drawingName}"/></Relationships>`);
-        if (!sheetXml.includes("<drawing ")) {
-          sheetXml = sheetXml.replace("</worksheet>", `<drawing r:id="${relId}"/></worksheet>`);
+
+        if (hasStyleSpec) {
+          sheetXml = applyReportStylesToSheetXml(sheetXml, styleSpec, reportStyles, styleSpec.columns || 9);
         }
+
         entries.set(sheetPath, uint8FromString(sheetXml));
-        entries.set(sheetRelsPath, uint8FromString(relsXml));
-        insertedImageCount += drawingImages.length;
       }
 
       entries.set("[Content_Types].xml", uint8FromString(contentTypes));
@@ -11865,6 +12415,25 @@
     document.getElementById("sheet1HardwareFilterResetBtn")?.addEventListener("click", resetSheet1Filters);
     document.getElementById("sheet1ProductionHardwareFilterResetBtn")?.addEventListener("click", resetSheet1Filters);
 
+    // Tick chọn xóa nhanh - bảng Mã Phần Cứng
+    const hardwareBulkTableEl = document.querySelector("[data-hardware-table]");
+    if (hardwareBulkTableEl) {
+      hardwareBulkTableEl.addEventListener("change", (event) => {
+        if (event.target.matches("[data-row-select]")) updateHardwareBulkBar();
+      });
+    }
+    document.querySelector("[data-hardware-select-all]")?.addEventListener("change", (event) => {
+      toggleAllHardwareSelection(event.target.checked);
+    });
+    document.getElementById("orderCheckResultBody")?.addEventListener("click", (event) => {
+      const usageBtn = event.target.closest("[data-order-check-usage]");
+      if (!usageBtn) return;
+      const tr = usageBtn.closest("tr");
+      if (tr) openOrderCheckBreakdown(tr);
+    });
+    document.querySelector("[data-hardware-bulk-delete]")?.addEventListener("click", bulkDeleteHardwareRows);
+    document.querySelector("[data-hardware-bulk-clear]")?.addEventListener("click", clearHardwareSelection);
+
     document.getElementById("sheet1FilterToggleBtn")?.addEventListener("click", () => {
       const activeTab = document.querySelector(".toolbar [data-catalog-tab].active")?.dataset.catalogTab || "product";
       const productToolbar = document.getElementById("sheet1ProductFilterToolbar");
@@ -12008,6 +12577,17 @@
     document.getElementById("sheet5WoFilterResetBtn")?.addEventListener("click", resetSheet5Filters);
     document.getElementById("orderCheckRunBtn")?.addEventListener("click", renderOrderCheckResults);
     document.getElementById("orderCheckExportBtn")?.addEventListener("click", exportOrderCheckReport);
+    let orderCheckPpFilterTimer = null;
+    document.getElementById("orderCheckPpFilter")?.addEventListener("input", (event) => {
+      orderCheckPpFilterValue = event.target.value;
+      updateOrderCheckPpFilterDatalist();
+      clearTimeout(orderCheckPpFilterTimer);
+      orderCheckPpFilterTimer = setTimeout(refreshOpenOrderCheckResults, 150);
+    });
+    document.getElementById("orderCheckPpFilterClear")?.addEventListener("click", () => {
+      resetOrderCheckPpFilter();
+      refreshOpenOrderCheckResults();
+    });
     document.getElementById("orderCheckViewSwitch")?.addEventListener("click", (event) => {
       const button = event.target.closest("[data-order-check-view]");
       if (button) setOrderCheckViewMode(button.dataset.orderCheckView);
@@ -13570,7 +14150,10 @@
           ? payload
           : { ...payload, auditHistory: history.slice(0, historyLimit) };
         try {
-          localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(localPayload));
+          const serialized = JSON.stringify(localPayload);
+          localStorage.setItem(ERP_STORAGE_KEY, serialized);
+          // Ghi nhớ ảnh dữ liệu vừa lưu để lần lưu sau dùng lại làm "trước khi lưu", khỏi parse localStorage.
+          lastPersistedPayloadString = serialized;
           if (historyLimit < history.length && !localStorageTrimWarningShown) {
             localStorageTrimWarningShown = true;
             console.warn(`Bộ nhớ trình duyệt gần đầy. Đã thu gọn lịch sử cục bộ còn ${historyLimit} bản để bảo đảm dữ liệu mới được lưu.`);
@@ -13645,10 +14228,17 @@
       if (isRestoringBackup) return;
       clearTimeout(persistTimer);
       if (!options.skipAudit && !isApplyingRemoteData) {
-        const previousPayload = readStoredAppDataPayload();
-        const entry = createAuditEntry(previousPayload, payload);
-        if (entry) {
+        // "Trước khi lưu" lấy từ ảnh dữ liệu trong bộ nhớ, không parse lại localStorage.
+        if (lastPersistedPayloadString === null) {
+          lastPersistedPayloadString = localStorage.getItem(ERP_STORAGE_KEY) || null;
+        }
+        const beforeString = lastPersistedPayloadString;
+        if (beforeString) {
+          const entry = createAuditEntryLite(options.changedAreas);
           auditHistory = [entry, ...auditHistory].slice(0, AUDIT_HISTORY_LIMIT);
+          // Điểm khôi phục giữ trong bộ nhớ phiên; không nhúng vào payload để tránh phình dữ liệu.
+          auditRestoreSnapshots.set(entry.id, beforeString);
+          pruneAuditRestoreSnapshots();
           payload.auditHistory = auditHistory;
         }
       }
@@ -13658,8 +14248,9 @@
       appDataDirty = false;
     }
 
-    function saveAppDataTableRows(selector, payloadKey, excludeSelector = "") {
-      writeCachedAppDataPayload(updateCachedTableRows(selector, payloadKey, excludeSelector));
+    function saveAppDataTableRows(selector, payloadKey, excludeSelector = "", options = {}) {
+      const changedAreas = options.changedAreas || [areaLabelForPayloadKey(payloadKey)];
+      writeCachedAppDataPayload(updateCachedTableRows(selector, payloadKey, excludeSelector), { ...options, changedAreas });
     }
 
     function wrapAppDataPayload(payload) {
@@ -14170,6 +14761,7 @@
   </script>
 </body>
 </html>
+
 
 
 
