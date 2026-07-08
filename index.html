@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260707185958"></script>
-  <script src="preview-images-data.js?v=20260707185958"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260708172343"></script>
+  <script src="preview-images-data.js?v=20260708172343"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -2265,11 +2265,12 @@
 
       <section class="table-shell" data-catalog-panel="product" aria-label="Bảng dữ liệu sản phẩm">
         <div class="table-wrap">
-          <table data-product-table data-status-column="13" data-status-options="Approved,Pending,Defective,Production,Other" data-filter-columns='[{"label":"Mã sản phẩm","columns":[1]},{"label":"Tên sản phẩm","columns":[2]},{"label":"Nguyên liệu","columns":[3]},{"label":"Kích thước sản phẩm","columns":[4,5,6]},{"label":"Kích thước đóng gói","columns":[7,8,9]},{"label":"Trạng thái","columns":[13]}]'>
+          <table data-product-table data-status-column="14" data-status-options="Approved,Pending,Defective,Production,Other" data-filter-columns='[{"label":"Mã sản phẩm","columns":[1]},{"label":"Part Number","columns":[2]},{"label":"Tên sản phẩm","columns":[3]},{"label":"Nguyên liệu","columns":[4]},{"label":"Kích thước sản phẩm","columns":[5,6,7]},{"label":"Kích thước đóng gói","columns":[8,9,10]},{"label":"Trạng thái","columns":[14]}]'>
             <thead>
               <tr>
                 <th rowspan="2">Hình ảnh<span>Preview</span></th>
                 <th rowspan="2">Mã Sản phẩm<span>Product code</span></th>
+                <th rowspan="2">Part Number<span>Part number</span></th>
                 <th rowspan="2">Tên sản phẩm<span>Product name</span></th>
                 <th rowspan="2">Nguyên liệu<span>Material</span></th>
                 <th colspan="3">Kích thước sản phẩm<span>mm</span></th>
@@ -2905,6 +2906,7 @@
         <div class="modal-body">
           <div class="form-grid">
             <div class="field"><label>Mã Sản phẩm<span>Product code</span></label><input class="control" name="productCode" required placeholder="FG-A1-520"></div>
+            <div class="field"><label>Part Number<span>Part number</span></label><input class="control" name="partNumber" placeholder="Part number"></div>
             <div class="field"><label>Tên sản phẩm<span>Product name</span></label><input class="control" name="productName" required placeholder="Tên sản phẩm"></div>
             <div class="field"><label>Nguyên liệu<span>Material</span></label><input class="control" name="material" placeholder="Nguyên liệu"></div>
             <div class="field"><label>Dài SP<span>Product length</span></label><input class="control" name="productLength" placeholder="mm"></div>
@@ -3154,10 +3156,10 @@
       <div class="modal-head">
         <div class="modal-title" id="orderCheckTitle">Kiểm Tra Vật Tư Đơn Hàng<span>Chọn đơn hàng và đối chiếu BOM với tồn kho khả dụng</span></div>
         <div id="orderCheckViewSwitch" style="display:flex; gap:8px; margin-left:auto;">
-          <button class="action-btn order-check-view-btn" data-order-check-view="shortage" type="button" title="Gộp tổng" aria-label="Gộp toàn bộ phần cứng thành một danh sách">
+          <button class="action-btn order-check-view-btn viewer-allowed" data-order-check-view="shortage" type="button" title="Gộp tổng" aria-label="Gộp toàn bộ phần cứng thành một danh sách">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h5l5 6h7"/><path d="M3 18h5l5-6"/><path d="m17 9 3 3-3 3"/></svg>
           </button>
-          <button class="action-btn primary order-check-view-btn" data-order-check-view="product" type="button" title="Tách sản phẩm" aria-label="Tách danh sách phần cứng theo từng sản phẩm">
+          <button class="action-btn primary order-check-view-btn viewer-allowed" data-order-check-view="product" type="button" title="Tách sản phẩm" aria-label="Tách danh sách phần cứng theo từng sản phẩm">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h7l5-6h5"/><path d="m17 3 3 3-3 3"/><path d="M10 12l5 6h5"/><path d="m17 15 3 3-3 3"/></svg>
           </button>
         </div>
@@ -3169,7 +3171,7 @@
           <label style="font-size:11px; font-weight:800; color:var(--muted); white-space:nowrap; line-height:1.2;">Lọc mã phần cứng PP<span style="display:block; font-weight:600;">Filter PP code</span></label>
           <input class="control" id="orderCheckPpFilter" list="orderCheckPpFilterList" placeholder="Nhập mã, cách nhau bằng dấu phẩy / Comma-separated" style="flex:1; min-width:240px; height:34px;" autocomplete="off">
           <span id="orderCheckPpFilterCount" style="font-size:11px; font-weight:800; color:var(--muted); white-space:nowrap;"></span>
-          <button class="mini-action danger" id="orderCheckPpFilterClear" type="button">Xóa lọc<span>Reset</span></button>
+          <button class="mini-action danger viewer-allowed" id="orderCheckPpFilterClear" type="button">Xóa lọc<span>Reset</span></button>
         </div>
         <datalist id="orderCheckPpFilterList"></datalist>
         <div class="table-shell compact" style="margin: 0; border-left: 0; border-right: 0; background: transparent;">
@@ -3196,8 +3198,8 @@
         </div>
       </div>
       <div class="modal-actions">
-        <button class="action-btn" id="orderCheckRunBtn" type="button">Kiểm tra<span>Run check</span></button>
-        <button class="action-btn" id="orderCheckExportBtn" type="button">Xuất báo cáo<span>Export report</span></button>
+        <button class="action-btn viewer-allowed" id="orderCheckRunBtn" type="button">Kiểm tra<span>Run check</span></button>
+        <button class="action-btn viewer-allowed" id="orderCheckExportBtn" type="button">Xuất báo cáo<span>Export report</span></button>
         <button class="action-btn primary" data-close-modal="orderCheckModal" type="button">Thoát<span>Close</span></button>
       </div>
     </div>
@@ -4540,7 +4542,7 @@
 
     document.addEventListener("click", (event) => {
       if (!isReadOnlyMode()) return;
-      if (event.target.closest("#roleToggleBtn, #accountManageBtn, #orderCheckModal, .viewer-allowed, [data-nav], [data-filter-open], [data-filter-apply], [data-filter-clear], [data-close-modal], [data-modal-close], [data-warehouse-tab], [data-order-tab]")) return;
+      if (event.target.closest("#roleToggleBtn, #accountManageBtn, #orderCheckModal, #orderCheckBreakdownModal, .viewer-allowed, [data-nav], [data-filter-open], [data-filter-apply], [data-filter-clear], [data-close-modal], [data-modal-close], [data-warehouse-tab], [data-order-tab]")) return;
       if (!isReadOnlyBlockedTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
@@ -4548,13 +4550,13 @@
     }, true);
 
     document.addEventListener("beforeinput", (event) => {
-      if (!isReadOnlyMode() || event.target.closest("#orderCheckModal") || !isReadOnlyBlockedTarget(event.target)) return;
+      if (!isReadOnlyMode() || event.target.closest("#orderCheckModal, #orderCheckBreakdownModal") || !isReadOnlyBlockedTarget(event.target)) return;
       event.preventDefault();
       canEditData(true);
     }, true);
 
     document.addEventListener("change", (event) => {
-      if (!isReadOnlyMode() || event.target.closest("#orderCheckModal") || !isReadOnlyBlockedTarget(event.target)) return;
+      if (!isReadOnlyMode() || event.target.closest("#orderCheckModal, #orderCheckBreakdownModal") || !isReadOnlyBlockedTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       canEditData(true);
@@ -4811,7 +4813,7 @@
 
     function repairSheet1VietnameseText() {
       document.querySelectorAll("[data-product-table] tbody tr").forEach((row) => {
-        repairCellVietnamese(row.cells[14]);
+        repairCellVietnamese(row.cells[15]);
       });
       document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => {
         repairCellVietnamese(row.cells[8], { status: true });
@@ -4833,7 +4835,22 @@
       });
     }
 
+    function ensureProductPartNumberCells() {
+      document.querySelectorAll("[data-product-table] tbody tr").forEach((row) => {
+        // Dữ liệu cũ (trước khi có cột Part Number) sẽ được chèn thêm ô rỗng ở đúng vị trí (index 2) khi tải.
+        if (row.querySelector("[data-product-part-number]")) return;
+        // Chỉ chèn cho dòng sản phẩm thực (có ô trạng thái), bỏ qua dòng đặc biệt để không lệch cấu trúc.
+        if (!row.querySelector('[data-editable="status"]')) return;
+        const cell = document.createElement("td");
+        cell.dataset.editable = "text";
+        cell.dataset.productPartNumber = "true";
+        cell.textContent = "-";
+        row.insertBefore(cell, row.cells[2] || null);
+      });
+    }
+
     function ensureProductWeightCells() {
+      ensureProductPartNumberCells();
       document.querySelectorAll("[data-product-table] tbody tr").forEach((row) => {
         if (row.querySelector('[data-product-weight="nw"]') && row.querySelector('[data-product-weight="gw"]')) return;
         const statusCell = row.querySelector('[data-editable="status"]');
@@ -4859,11 +4876,11 @@
       const row = Array.from(document.querySelectorAll("[data-product-table] tbody tr"))
         .find(item => String(item.cells[1]?.innerText || "").trim().toLowerCase() === target);
       if (!row) return 0;
-      const savedCbm = parseNumber(row.cells[10]?.innerText);
+      const savedCbm = parseNumber(row.cells[11]?.innerText);
       if (savedCbm > 0) return savedCbm;
-      return parseNumber(row.cells[7]?.innerText)
-        * parseNumber(row.cells[8]?.innerText)
-        * parseNumber(row.cells[9]?.innerText) / 1000000000;
+      return parseNumber(row.cells[8]?.innerText)
+        * parseNumber(row.cells[9]?.innerText)
+        * parseNumber(row.cells[10]?.innerText) / 1000000000;
     }
 
     function formatTotalCbm(value) {
@@ -5368,7 +5385,7 @@
       const table = row.closest("table");
       const isProduct = table?.matches("[data-product-table]");
       const codeIndex = isProduct ? 1 : 3;
-      const nameIndex = isProduct ? 2 : 1;
+      const nameIndex = isProduct ? 3 : 1;
       return {
         code: row.cells[codeIndex]?.innerText.trim() || "",
         name: row.cells[nameIndex]?.innerText.trim() || ""
@@ -5976,11 +5993,12 @@
       const table = document.querySelector("[data-product-table]");
       return Array.from(table?.tBodies[0]?.rows || []).map((row) => ({
         code: row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "",
-        name: row.cells[2]?.querySelector(".item-name")?.innerText.replace(/\s+/g, " ").trim() || row.cells[2]?.innerText.replace(/\s+/g, " ").trim() || "",
-        material: row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "",
-        pack: [row.cells[7], row.cells[8], row.cells[9]].map((cell) => cell?.innerText.replace(/\s+/g, " ").trim() || "").filter(Boolean).join(" x "),
-        nw: row.cells[11]?.innerText.replace(/\s+/g, " ").trim() || "",
-        gw: row.cells[12]?.innerText.replace(/\s+/g, " ").trim() || ""
+        partNumber: row.cells[2]?.innerText.replace(/\s+/g, " ").trim() || "",
+        name: row.cells[3]?.querySelector(".item-name")?.innerText.replace(/\s+/g, " ").trim() || row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "",
+        material: row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "",
+        pack: [row.cells[8], row.cells[9], row.cells[10]].map((cell) => cell?.innerText.replace(/\s+/g, " ").trim() || "").filter(Boolean).join(" x "),
+        nw: row.cells[12]?.innerText.replace(/\s+/g, " ").trim() || "",
+        gw: row.cells[13]?.innerText.replace(/\s+/g, " ").trim() || ""
       })).filter((item) => item.code);
     }
 
@@ -7474,8 +7492,8 @@
           .filter(row => {
             if (row.matches("[data-generic-entry-row]") || row.matches(".bom-entry-row")) return false;
             const codeText = row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
-            const nameText = (row.cells[2]?.querySelector(".item-name")?.innerText || row.cells[2]?.innerText).replace(/\s+/g, " ").trim();
-            const statusText = row.cells[13]?.innerText.replace(/\s+/g, " ").trim();
+            const nameText = (row.cells[3]?.querySelector(".item-name")?.innerText || row.cells[3]?.innerText).replace(/\s+/g, " ").trim();
+            const statusText = row.cells[14]?.innerText.replace(/\s+/g, " ").trim();
 
             if (field !== 'code' && !matchesSheet1Filter(codeText, sheet1ProductFilters.code)) return false;
             if (field !== 'name' && !matchesSheet1Filter(nameText, sheet1ProductFilters.name)) return false;
@@ -7484,8 +7502,8 @@
           })
           .map(row => {
             if (field === 'code') return row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
-            if (field === 'name') return (row.cells[2]?.querySelector(".item-name")?.innerText || row.cells[2]?.innerText).replace(/\s+/g, " ").trim();
-            if (field === 'status') return row.cells[13]?.innerText.replace(/\s+/g, " ").trim();
+            if (field === 'name') return (row.cells[3]?.querySelector(".item-name")?.innerText || row.cells[3]?.innerText).replace(/\s+/g, " ").trim();
+            if (field === 'status') return row.cells[14]?.innerText.replace(/\s+/g, " ").trim();
             return "";
           })
           .filter(Boolean)
@@ -7569,8 +7587,8 @@
             return;
           }
           const codeText = row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
-          const nameText = (row.cells[2]?.querySelector(".item-name")?.innerText || row.cells[2]?.innerText).replace(/\s+/g, " ").trim();
-          const statusText = row.cells[13]?.innerText.replace(/\s+/g, " ").trim();
+          const nameText = (row.cells[3]?.querySelector(".item-name")?.innerText || row.cells[3]?.innerText).replace(/\s+/g, " ").trim();
+          const statusText = row.cells[14]?.innerText.replace(/\s+/g, " ").trim();
 
           const matchCode = matchesSheet1Filter(codeText, sheet1ProductFilters.code);
           const matchName = matchesSheet1Filter(nameText, sheet1ProductFilters.name);
@@ -8538,7 +8556,7 @@
         const isShortage = orderCheckViewMode === "shortage";
         const breakdown = isShortage ? getOrderCheckBreakdownList(row) : [];
         const issueCell = isShortage
-          ? `<div class="order-check-usage-wrap"><span class="badge ${row.shortageQty > 0 ? "red" : "green"}">Dùng cho ${breakdown.length.toLocaleString()} sản phẩm</span>${breakdown.length ? `<button class="mini-action order-check-usage-btn" type="button" data-order-check-usage title="Xem chi tiết từng mã sản phẩm">...</button>` : ""}</div>`
+          ? `<div class="order-check-usage-wrap"><span class="badge ${row.shortageQty > 0 ? "red" : "green"}">Dùng cho ${breakdown.length.toLocaleString()} sản phẩm</span>${breakdown.length ? `<button class="mini-action order-check-usage-btn viewer-allowed" type="button" data-order-check-usage title="Xem chi tiết từng mã sản phẩm">...</button>` : ""}</div>`
           : `<span class="badge ${row.priority === 1 ? "green" : "yellow"}">${row.supplyType} — Ưu tiên ${row.priority}${row.priority > 1 ? `<br>Cho mã chính: ${row.sourceMainPp}` : ""}</span>`;
         const breakdownAttr = isShortage && breakdown.length
           ? ` data-order-check-breakdown="${escapeAccountHtml(JSON.stringify(breakdown))}" data-order-check-name="${escapeAccountHtml(`${row.name || ""} ${row.pp && row.pp !== "-" ? row.pp : row.fw || ""}`.trim())}"`
@@ -10633,19 +10651,20 @@
       const text = (index) => row?.cells[index]?.innerText.replace(/\s+/g, " ").trim() || "";
       return {
         code: text(1),
-        name: text(2),
-        material: text(3),
-        productL: text(4),
-        productW: text(5),
-        productH: text(6),
-        packL: text(7),
-        packW: text(8),
-        packH: text(9),
-        cbm: text(10),
-        nw: text(11),
-        gw: text(12),
-        status: text(13),
-        remarks: text(14)
+        partNumber: text(2),
+        name: text(3),
+        material: text(4),
+        productL: text(5),
+        productW: text(6),
+        productH: text(7),
+        packL: text(8),
+        packW: text(9),
+        packH: text(10),
+        cbm: text(11),
+        nw: text(12),
+        gw: text(13),
+        status: text(14),
+        remarks: text(15)
       };
     }
 
@@ -12284,6 +12303,7 @@
       row.innerHTML = `
         <td>${renderProductPreviewBox(data.productCode)}</td>
         <td data-editable="text">${data.productCode}</td>
+        <td data-editable="text" data-product-part-number="true">${data.partNumber || "-"}</td>
         <td data-editable="html"><div class="item-name">${data.productName}</div><div class="item-sub">Manual entry</div></td>
         <td data-editable="text">${data.material || "-"}</td>
         <td data-editable="number" data-dim="product-l">${data.productLength || "-"}</td>
@@ -12619,6 +12639,7 @@
       row.innerHTML = `
         <td>${renderProductPreviewBox(code)}</td>
         <td data-editable="text">${code}</td>
+        <td data-editable="text" data-product-part-number="true">-</td>
         <td data-editable="html"><div class="item-name">${name}</div><div class="item-sub">Auto updated</div></td>
         <td data-editable="text">-</td>
         <td data-editable="number" data-dim="product-l">-</td>
@@ -14761,6 +14782,7 @@
   </script>
 </body>
 </html>
+
 
 
 
