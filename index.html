@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260708174407"></script>
-  <script src="preview-images-data.js?v=20260708174407"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260709124119"></script>
+  <script src="preview-images-data.js?v=20260709124119"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -2227,11 +2227,11 @@
         </div>
         <div class="field">
           <label>Mã phần cứng FW<span>FW Code</span></label>
-          <input class="control" id="sheet1HardwareFilterFw" list="sheet1HardwareFwFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1HardwareFilterFw" list="sheet1HardwareFwFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy" autocomplete="off">
         </div>
         <div class="field">
           <label>Mã phần cứng PP<span>PP Code</span></label>
-          <input class="control" id="sheet1HardwareFilterPp" list="sheet1HardwarePpFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1HardwareFilterPp" list="sheet1HardwarePpFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy" autocomplete="off">
         </div>
         <div class="field">
           <label>Nhà cung cấp<span>Supplier</span></label>
@@ -2305,19 +2305,20 @@
           <button class="mini-action" type="button" data-hardware-bulk-clear>Bỏ chọn<span>Clear</span></button>
         </div>
         <div class="table-wrap">
-          <table data-hardware-table data-status-column="8" data-uom-options="EA,SET,PAIRS,mm" data-supplier-options="FW,Omexey,Acufit,Maddog,Other" data-status-options="Đã duyệt,Mẫu,Lỗi,Phiên bản cũ,Other" data-filter-columns='[{"label":"Mã FW","columns":[2]},{"label":"Mã PP","columns":[3]},{"label":"Vật liệu","columns":[5]},{"label":"Nhà cung cấp","columns":[7]},{"label":"Trạng thái","columns":[8]}]'>
+          <table data-hardware-table data-status-column="9" data-uom-options="EA,SET,PAIRS,mm" data-supplier-options="FW,Omexey,Acufit,Maddog,Other" data-status-options="Đã duyệt,Mẫu,Lỗi,Phiên bản cũ,Other" data-filter-columns='[{"label":"Mã FW","columns":[3]},{"label":"Mã PP","columns":[4]},{"label":"Vật liệu","columns":[6]},{"label":"Nhà cung cấp","columns":[8]},{"label":"Trạng thái","columns":[9]}]'>
             <thead>
               <tr>
                 <th>Hình ảnh<span>Preview</span></th>
                 <th data-hardware-sort="1">Tên hàng<span>Item name</span></th>
-                <th data-hardware-sort="2">Mã phần cứng FW<span>FW hardware code</span></th>
-                <th data-hardware-sort="3">Mã phần cứng PP<span>PP hardware code</span></th>
-                <th data-hardware-sort="4">Quy cách<span>Specification</span></th>
-                <th data-hardware-sort="5">Vật liệu<span>Material</span></th>
-                <th data-hardware-sort="6">Đơn vị<span>UOM</span></th>
-                <th data-hardware-sort="7">Nhà cung cấp<span>Supplier</span></th>
-                <th data-hardware-sort="8">Trạng thái<span>Status</span></th>
-                <th data-hardware-sort="9">Loại<span>Type</span></th>
+                <th data-hardware-sort="2">Tên Việt Nam<span>Vietnamese name</span></th>
+                <th data-hardware-sort="3">Mã phần cứng FW<span>FW hardware code</span></th>
+                <th data-hardware-sort="4">Mã phần cứng PP<span>PP hardware code</span></th>
+                <th data-hardware-sort="5">Quy cách<span>Specification</span></th>
+                <th data-hardware-sort="6">Vật liệu<span>Material</span></th>
+                <th data-hardware-sort="7">Đơn vị<span>UOM</span></th>
+                <th data-hardware-sort="8">Nhà cung cấp<span>Supplier</span></th>
+                <th data-hardware-sort="9">Trạng thái<span>Status</span></th>
+                <th data-hardware-sort="10">Loại<span>Type</span></th>
                 <th>Sản phẩm sử dụng<span>Used by products</span></th>
                 <th>Ghi chú<span>Remarks</span></th>
                 <th>
@@ -4816,15 +4817,15 @@
         repairCellVietnamese(row.cells[15]);
       });
       document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => {
-        repairCellVietnamese(row.cells[8], { status: true });
-        const noteCell = row.cells[11] || row.cells[9];
+        repairCellVietnamese(row.cells[9], { status: true });
+        const noteCell = row.cells[12] || row.cells[10];
         repairCellVietnamese(noteCell);
       });
     }
 
     function normalizeSheet1AndSheet2UomDisplays() {
       document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => {
-        const cell = row.cells[6];
+        const cell = row.cells[7];
         if (cell && !cell.querySelector("[data-uom-select]")) {
           cell.textContent = normalizeDownstreamUom(cell.innerText);
         }
@@ -5063,7 +5064,7 @@
     }
 
     function getHardwareType(row) {
-      const cell = row?.querySelector("[data-hardware-type-cell]") || row?.cells?.[9];
+      const cell = row?.querySelector("[data-hardware-type-cell]") || row?.cells?.[10];
       return normalizeHardwareType(cell?.querySelector("[data-hardware-type-label]")?.textContent || cell?.innerText || "");
     }
 
@@ -5086,6 +5087,17 @@
       return select;
     }
 
+    function ensureHardwareVietnameseNameCell(row) {
+      if (!row || !row.closest("[data-hardware-table]")) return;
+      // Dữ liệu cũ (trước khi có cột Tên Việt Nam) sẽ được chèn thêm ô rỗng ở đúng vị trí (index 2) khi tải.
+      if (row.querySelector("[data-hardware-vn-name]")) return;
+      const cell = document.createElement("td");
+      cell.dataset.editable = "text";
+      cell.dataset.hardwareVnName = "true";
+      cell.textContent = "";
+      row.insertBefore(cell, row.cells[2] || null);
+    }
+
     function ensureHardwareTypeCell(row) {
       if (!row || !row.closest("[data-hardware-table]")) return;
       if (row.querySelector("[data-hardware-type-cell]")) {
@@ -5099,7 +5111,7 @@
       cell.dataset.hardwareTypeCell = "true";
       cell.innerHTML = renderHardwareTypeCell("Mã đơn");
       const usageCell = row.querySelector("[data-hardware-usage-cell]");
-      row.insertBefore(cell, usageCell || row.cells[9] || row.querySelector(".row-actions")?.closest("td"));
+      row.insertBefore(cell, usageCell || row.cells[10] || row.querySelector(".row-actions")?.closest("td"));
     }
 
     function ensureHardwareSelectControl(row) {
@@ -5116,6 +5128,7 @@
 
     function ensureHardwareUsageCell(row) {
       if (!row || !row.closest("[data-hardware-table]")) return;
+      ensureHardwareVietnameseNameCell(row);
       ensureHardwareTypeCell(row);
       const actionCell = row.querySelector(".row-actions")?.closest("td");
       if (!actionCell) return;
@@ -5125,15 +5138,15 @@
         if (!cell.querySelector("[data-hardware-usage]")) cell.innerHTML = renderHardwareUsageButton();
         return;
       }
-      if (row.cells.length >= 13 && row.cells[10]) {
-        row.cells[10].dataset.hardwareUsageCell = "true";
-        row.cells[10].innerHTML = renderHardwareUsageButton();
+      if (row.cells.length >= 14 && row.cells[11]) {
+        row.cells[11].dataset.hardwareUsageCell = "true";
+        row.cells[11].innerHTML = renderHardwareUsageButton();
         return;
       }
       const cell = document.createElement("td");
       cell.dataset.hardwareUsageCell = "true";
       cell.innerHTML = renderHardwareUsageButton();
-      row.insertBefore(cell, row.cells[10] || actionCell);
+      row.insertBefore(cell, row.cells[11] || actionCell);
     }
 
     function ensureHardwareUsageCells() {
@@ -5311,7 +5324,7 @@
 
     function applyHardwarePreviewImages() {
       document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => {
-        const ppCode = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
+        const ppCode = row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "";
         if (row.cells[0]) row.cells[0].innerHTML = renderHardwarePreviewBox(ppCode);
       });
       document.querySelectorAll("[data-production-hardware-table] tbody tr[data-production-hardware-key]").forEach((row) => {
@@ -5338,8 +5351,8 @@
     }
 
     function getHardwareUsageRows(hardwareRow) {
-      const fw = hardwareRow.cells[2]?.innerText.replace(/\s+/g, " ").trim().toLowerCase();
-      const pp = hardwareRow.cells[3]?.innerText.replace(/\s+/g, " ").trim().toLowerCase();
+      const fw = hardwareRow.cells[3]?.innerText.replace(/\s+/g, " ").trim().toLowerCase();
+      const pp = hardwareRow.cells[4]?.innerText.replace(/\s+/g, " ").trim().toLowerCase();
       const usageMap = new Map();
       Array.from(document.querySelectorAll("[data-bom-body] tr[data-bom-parent]")).forEach((row) => {
         const bomFw = row.cells[2]?.innerText.replace(/\s+/g, " ").trim().toLowerCase();
@@ -5363,7 +5376,7 @@
       const title = document.getElementById("hardwareUsageTitle");
       if (!tbody || !row) return;
       const itemName = row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "Vật tư";
-      const pp = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "-";
+      const pp = row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "-";
       if (title) title.firstChild.textContent = `Sản Phẩm Sử Dụng: ${itemName}`;
       const usageRows = getHardwareUsageRows(row);
       if (!usageRows.length) {
@@ -5384,7 +5397,7 @@
     function getUniqueValuesForRow(row) {
       const table = row.closest("table");
       const isProduct = table?.matches("[data-product-table]");
-      const codeIndex = isProduct ? 1 : 3;
+      const codeIndex = isProduct ? 1 : 4;
       const nameIndex = isProduct ? 3 : 1;
       return {
         code: row.cells[codeIndex]?.innerText.trim() || "",
@@ -5406,8 +5419,8 @@
       rows.sort((a, b) => {
         const aName = a.cells[1]?.innerText.replace(/\s+/g, " ").trim();
         const bName = b.cells[1]?.innerText.replace(/\s+/g, " ").trim();
-        const aPp = a.cells[3]?.innerText.replace(/\s+/g, " ").trim();
-        const bPp = b.cells[3]?.innerText.replace(/\s+/g, " ").trim();
+        const aPp = a.cells[4]?.innerText.replace(/\s+/g, " ").trim();
+        const bPp = b.cells[4]?.innerText.replace(/\s+/g, " ").trim();
         const aBlankPpWithName = aName && !aPp;
         const bBlankPpWithName = bName && !bPp;
         if (aBlankPpWithName === bBlankPpWithName) return 0;
@@ -5497,9 +5510,9 @@
       }
       if (row.closest("[data-hardware-table]")) {
         row.dataset.originalHardwareName = row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "";
-        row.dataset.originalFw = row.cells[2]?.innerText.replace(/\s+/g, " ").trim() || "";
+        row.dataset.originalFw = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
+        row.dataset.originalPp = row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "";
       }
-      row.dataset.originalPp = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
       tableShell.classList.add("editing");
       row.classList.add("editing-row");
       row.querySelectorAll("[data-editable]").forEach((cell) => {
@@ -5658,7 +5671,7 @@
       
       return rows.some((row) => {
         if (row === currentRow) return false;
-        const rowPp = cleanPpCode(row.cells[3]?.innerText || "");
+        const rowPp = cleanPpCode(row.cells[4]?.innerText || "");
         return cleanPp === rowPp;
       });
     }
@@ -5679,7 +5692,7 @@
       } else {
         const isHardware = row.closest("[data-hardware-table]") !== null;
         if (isHardware) {
-          const ppCode = row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
+          const ppCode = row.cells[4]?.innerText.replace(/\s+/g, " ").trim();
           if (isDuplicateHardwareTablePpCode(ppCode, row)) {
             showToast("Lỗi: Mã PP code đã tồn tại trong danh mục phần cứng!");
             return;
@@ -5731,7 +5744,7 @@
       let hardwarePostSync = null;
       let hardwarePpChanged = false;
       if (row.closest("[data-hardware-table]")) {
-        const currentPp = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
+        const currentPp = row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "";
         if (save) {
           hardwarePostSync = {
             oldHardware: {
@@ -5741,7 +5754,7 @@
             },
             newHardware: {
               name: row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "",
-              fw: row.cells[2]?.innerText.replace(/\s+/g, " ").trim() || "",
+              fw: row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "",
               pp: currentPp
             }
           };
@@ -5756,7 +5769,7 @@
       const editedHardwareTable = row.closest("[data-hardware-table]");
       const editedProductTable = row.closest("[data-product-table]");
       if (editedHardwareTable) {
-        const ppCode = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
+        const ppCode = row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "";
         if (row.cells[0]) row.cells[0].innerHTML = renderHardwarePreviewBox(ppCode);
       }
       if (editedProductTable) {
@@ -5788,7 +5801,7 @@
     function confirmSaveRow(row) {
       const isHardware = row.closest("[data-hardware-table]") !== null;
       if (isHardware) {
-        const ppCode = row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
+        const ppCode = row.cells[4]?.innerText.replace(/\s+/g, " ").trim();
         if (isDuplicateHardwareTablePpCode(ppCode, row)) {
           showToast("Lỗi: Mã PP code đã tồn tại trong danh mục phần cứng!");
           return;
@@ -6154,13 +6167,14 @@
       Array.from(table?.tBodies[0]?.rows || []).forEach(ensureHardwareUsageCell);
       return Array.from(table?.tBodies[0]?.rows || []).map((row) => ({
         name: row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "",
-        fw: row.cells[2]?.innerText.replace(/\s+/g, " ").trim() || "",
-        pp: row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "",
-        spec: row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "",
-        material: row.cells[5]?.innerText.replace(/\s+/g, " ").trim() || "",
-        uom: normalizeDownstreamUom(row.cells[6]?.innerText.replace(/\s+/g, " ").trim() || ""),
-        supplier: row.cells[7]?.innerText.replace(/\s+/g, " ").trim() || "",
-        status: row.cells[8]?.innerText.replace(/\s+/g, " ").trim() || "",
+        vietnameseName: row.cells[2]?.innerText.replace(/\s+/g, " ").trim() || "",
+        fw: row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "",
+        pp: row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "",
+        spec: row.cells[5]?.innerText.replace(/\s+/g, " ").trim() || "",
+        material: row.cells[6]?.innerText.replace(/\s+/g, " ").trim() || "",
+        uom: normalizeDownstreamUom(row.cells[7]?.innerText.replace(/\s+/g, " ").trim() || ""),
+        supplier: row.cells[8]?.innerText.replace(/\s+/g, " ").trim() || "",
+        status: row.cells[9]?.innerText.replace(/\s+/g, " ").trim() || "",
         type: getHardwareType(row)
       })).filter((item) => item.name || item.fw || item.pp);
     }
@@ -6188,6 +6202,7 @@
       newRow.innerHTML = `
         <td>${renderHardwarePreviewBox(ppCode)}</td>
         <td data-editable="text">${item?.name || ""}</td>
+        <td data-editable="text" data-hardware-vn-name="true"></td>
         <td data-editable="text"></td>
         <td data-editable="text">${ppCode}</td>
         <td data-editable="text"></td>
@@ -6246,6 +6261,29 @@
       });
     }
 
+    // Datalist cho ô lọc nhiều mã: gợi ý mã kế tiếp sau dấu phẩy (giữ phần đã nhập trước đó làm tiền tố).
+    function fillSheet1MultiDatalist(listId, inputId, values) {
+      const list = document.getElementById(listId);
+      if (!list) return;
+      const input = document.getElementById(inputId);
+      const raw = input ? input.value : "";
+      const lastComma = raw.lastIndexOf(",");
+      const prefix = lastComma >= 0 ? `${raw.slice(0, lastComma + 1)} ` : "";
+      const chosen = new Set(getSheet1MultiTokens(raw));
+      const options = [...new Set(values.filter(Boolean).map((value) => String(value)))]
+        .filter((value) => !chosen.has(value.toLowerCase()))
+        .map((value) => `${prefix}${value}`);
+      const signature = JSON.stringify(options);
+      if (list.dataset.optionsSignature === signature) return;
+      list.dataset.optionsSignature = signature;
+      list.innerHTML = "";
+      options.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        list.appendChild(option);
+      });
+    }
+
     function refreshBomHardwareSuggestions() {
       const fullCatalog = getHardwareCatalog();
       const catalog = fullCatalog.filter((item) => item.type !== "Mã chi tiết");
@@ -6260,7 +6298,7 @@
     function getProductionHardwareSourceRows(applyFilters = true) {
       const table = document.querySelector("[data-hardware-table]");
       return Array.from(table?.tBodies[0]?.rows || []).map((row) => {
-        const pp = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
+        const pp = row.cells[4]?.innerText.replace(/\s+/g, " ").trim() || "";
         const key = getProductionHardwareKey(pp);
         const type = getHardwareType(row);
         const settings = productionHardwareSettings[key] || {};
@@ -6268,7 +6306,7 @@
           key,
           name: row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "",
           pp,
-          uom: normalizeDownstreamUom(row.cells[6]?.innerText.replace(/\s+/g, " ").trim() || ""),
+          uom: normalizeDownstreamUom(row.cells[7]?.innerText.replace(/\s+/g, " ").trim() || ""),
           type,
           qty: settings.qty || "",
           priority: settings.priority || "",
@@ -7484,6 +7522,21 @@
       return !filterText || text.includes(filterText);
     }
 
+    // Lọc nhiều mã cùng lúc: nhập các mã cách nhau bằng dấu phẩy, khớp nếu trùng BẤT KỲ mã nào.
+    function getSheet1MultiTokens(filterValue) {
+      return String(filterValue || "")
+        .split(",")
+        .map((token) => token.replace(/\s+/g, " ").trim().toLowerCase())
+        .filter(Boolean);
+    }
+
+    function matchesSheet1FilterMulti(value, filterValue) {
+      const tokens = getSheet1MultiTokens(filterValue);
+      if (!tokens.length) return true;
+      const text = String(value || "").trim().toLowerCase();
+      return tokens.some((token) => text.includes(token));
+    }
+
     function updateSheet1FilterOptions() {
       // 1. Product catalog cascading options
       const productRows = getSheet1ProductRows();
@@ -7517,24 +7570,24 @@
           .filter(row => {
             if (row.matches("[data-generic-entry-row]") || row.matches(".bom-entry-row")) return false;
             const nameText = row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
-            const fwText = row.cells[2]?.innerText.replace(/\s+/g, " ").trim();
-            const ppText = row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
-            const supplierText = row.cells[7]?.innerText.replace(/\s+/g, " ").trim();
-            const statusText = row.cells[8]?.innerText.replace(/\s+/g, " ").trim();
+            const fwText = row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
+            const ppText = row.cells[4]?.innerText.replace(/\s+/g, " ").trim();
+            const supplierText = row.cells[8]?.innerText.replace(/\s+/g, " ").trim();
+            const statusText = row.cells[9]?.innerText.replace(/\s+/g, " ").trim();
 
             if (field !== 'name' && !matchesSheet1Filter(nameText, sheet1HardwareFilters.name)) return false;
-            if (field !== 'fw' && !matchesSheet1Filter(fwText, sheet1HardwareFilters.fw)) return false;
-            if (field !== 'pp' && !matchesSheet1Filter(ppText, sheet1HardwareFilters.pp)) return false;
+            if (field !== 'fw' && !matchesSheet1FilterMulti(fwText, sheet1HardwareFilters.fw)) return false;
+            if (field !== 'pp' && !matchesSheet1FilterMulti(ppText, sheet1HardwareFilters.pp)) return false;
             if (field !== 'supplier' && !matchesSheet1Filter(supplierText, sheet1HardwareFilters.supplier)) return false;
             if (field !== 'status' && !matchesSheet1Filter(statusText, sheet1HardwareFilters.status)) return false;
             return true;
           })
           .map(row => {
             if (field === 'name') return row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
-            if (field === 'fw') return row.cells[2]?.innerText.replace(/\s+/g, " ").trim();
-            if (field === 'pp') return row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
-            if (field === 'supplier') return row.cells[7]?.innerText.replace(/\s+/g, " ").trim();
-            if (field === 'status') return row.cells[8]?.innerText.replace(/\s+/g, " ").trim();
+            if (field === 'fw') return row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
+            if (field === 'pp') return row.cells[4]?.innerText.replace(/\s+/g, " ").trim();
+            if (field === 'supplier') return row.cells[8]?.innerText.replace(/\s+/g, " ").trim();
+            if (field === 'status') return row.cells[9]?.innerText.replace(/\s+/g, " ").trim();
             return "";
           })
           .filter(Boolean)
@@ -7567,8 +7620,8 @@
       fillDatalist("sheet1ProductStatusFilterList", pStatuses);
 
       fillDatalist("sheet1HardwareNameFilterList", hNames);
-      fillDatalist("sheet1HardwareFwFilterList", hFws);
-      fillDatalist("sheet1HardwarePpFilterList", hPps);
+      fillSheet1MultiDatalist("sheet1HardwareFwFilterList", "sheet1HardwareFilterFw", hFws);
+      fillSheet1MultiDatalist("sheet1HardwarePpFilterList", "sheet1HardwareFilterPp", hPps);
       fillDatalist("sheet1HardwareSupplierFilterList", hSuppliers);
       fillDatalist("sheet1HardwareStatusFilterList", hStatuses);
       fillDatalist("sheet1ProductionHardwareNameFilterList", phNames);
@@ -7608,14 +7661,14 @@
             return;
           }
           const nameText = row.cells[1]?.innerText.replace(/\s+/g, " ").trim();
-          const fwText = row.cells[2]?.innerText.replace(/\s+/g, " ").trim();
-          const ppText = row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
-          const supplierText = row.cells[7]?.innerText.replace(/\s+/g, " ").trim();
-          const statusText = row.cells[8]?.innerText.replace(/\s+/g, " ").trim();
+          const fwText = row.cells[3]?.innerText.replace(/\s+/g, " ").trim();
+          const ppText = row.cells[4]?.innerText.replace(/\s+/g, " ").trim();
+          const supplierText = row.cells[8]?.innerText.replace(/\s+/g, " ").trim();
+          const statusText = row.cells[9]?.innerText.replace(/\s+/g, " ").trim();
 
           const matchName = matchesSheet1Filter(nameText, sheet1HardwareFilters.name);
-          const matchFw = matchesSheet1Filter(fwText, sheet1HardwareFilters.fw);
-          const matchPp = matchesSheet1Filter(ppText, sheet1HardwareFilters.pp);
+          const matchFw = matchesSheet1FilterMulti(fwText, sheet1HardwareFilters.fw);
+          const matchPp = matchesSheet1FilterMulti(ppText, sheet1HardwareFilters.pp);
           const matchSupplier = matchesSheet1Filter(supplierText, sheet1HardwareFilters.supplier);
           const matchStatus = matchesSheet1Filter(statusText, sheet1HardwareFilters.status);
 
@@ -11265,19 +11318,16 @@
         return;
       }
 
+      // Chỉ xuất 8 cột theo yêu cầu (đúng thứ tự cột trên bảng): ảnh, tên hàng, tên Việt Nam, FW, PP, quy cách, vật liệu, đơn vị.
       const headers = [
         "Hình ảnh / Preview",
         "Tên hàng / Item name",
+        "Tên Việt Nam / Vietnamese name",
         "Mã phần cứng FW / FW hardware code",
         "Mã phần cứng PP / PP hardware code",
         "Quy cách / Specification",
         "Vật liệu / Material",
-        "Đơn vị / UOM",
-        "Nhà cung cấp / Supplier",
-        "Trạng thái / Status",
-        "Loại / Type",
-        "Sản phẩm sử dụng / Used by products",
-        "Ghi chú / Remarks"
+        "Đơn vị / UOM"
       ];
       const rows = [headers];
       sourceRows.forEach((row) => {
@@ -11291,22 +11341,21 @@
       const sheetName = "Sheet 2 - Ma phan cung";
       const imageAnchors = [];
       worksheet["!cols"] = [
-        { wch: 20 }, { wch: 34 }, { wch: 22 }, { wch: 22 },
-        { wch: 26 }, { wch: 20 }, { wch: 12 }, { wch: 22 },
-        { wch: 18 }, { wch: 18 }, { wch: 28 }, { wch: 32 }
+        { wch: 20 }, { wch: 34 }, { wch: 30 }, { wch: 22 },
+        { wch: 22 }, { wch: 26 }, { wch: 20 }, { wch: 12 }
       ];
       worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex > 0 ? { hpt: 76 } : { hpt: 30 });
-      worksheet["!autofilter"] = { ref: `A1:L${rows.length}` };
+      worksheet["!autofilter"] = { ref: `A1:H${rows.length}` };
 
       sourceRows.forEach((row, rowOffset) => {
-        const ppCode = String(row.cells[3]?.innerText || "").replace(/\s+/g, " ").trim();
+        const ppCode = String(row.cells[4]?.innerText || "").replace(/\s+/g, " ").trim();
         const imageUrl = getHardwarePreviewExcelUrl(ppCode);
         if (!imageUrl) return;
         imageAnchors.push({
           row: rowOffset + 1,
           col: 0,
           imageUrl,
-          name: ppCode || String(row.cells[2]?.innerText || row.cells[1]?.innerText || "Preview").trim()
+          name: ppCode || String(row.cells[3]?.innerText || row.cells[1]?.innerText || "Preview").trim()
         });
       });
 
@@ -14782,6 +14831,7 @@
   </script>
 </body>
 </html>
+
 
 
 
