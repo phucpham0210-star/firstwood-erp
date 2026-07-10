@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260710123717"></script>
-  <script src="preview-images-data.js?v=20260710123717"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260710124955"></script>
+  <script src="preview-images-data.js?v=20260710124955"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -1131,18 +1131,77 @@
     }
 
     .qc-meta-photo {
-      width: 150px;
+      width: 170px;
       flex: none;
+      display: flex;
+      align-items: center;
     }
 
     .qc-meta-photo .preview-box {
       width: 100%;
-      height: 70px;
+      height: 96px;      /* 96 - viền 2 - đệm 10 = 84px vùng chứa ảnh */
+      padding: 5px;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Ảnh sản phẩm phải hiện TRỌN ảnh (không bị cắt).
+       Không dùng height:100% vì phần trăm không giải được trong khung tự co;
+       dùng giới hạn tuyệt đối để ảnh luôn nằm gọn và canh giữa. */
+    .qc-meta-photo .preview-box img {
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: 84px;
+      object-fit: contain;
     }
 
     .qc-page-tools {
       margin-top: 10px;
     }
+
+    /* 3 phiếu chia thành 3 mục (tab) */
+    .qc-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 0 0 14px;
+    }
+
+    .qc-tab {
+      border: 1px solid var(--line-soft, #2a3342);
+      background: var(--surface-2, #172238);
+      color: #b6c8ee;
+      border-radius: var(--radius, 8px);
+      padding: 8px 14px;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+      text-align: left;
+      line-height: 1.25;
+    }
+
+    .qc-tab small {
+      display: block;
+      font-size: 9px;
+      font-weight: 700;
+      color: #6f7787;
+      margin-top: 2px;
+    }
+
+    .qc-tab:hover { border-color: var(--blue, #2f7fff); }
+
+    .qc-tab.active {
+      background: var(--blue, #2f7fff);
+      border-color: var(--blue, #2f7fff);
+      color: #ffffff;
+    }
+
+    .qc-tab.active small { color: rgba(255, 255, 255, .78); }
+
+    .qc-page.is-hidden { display: none; }
 
     .qc-section-head {
       display: flex;
@@ -1303,6 +1362,7 @@
       }
 
       body.qc-printing .qc-page {
+        display: flex !important;
         width: 210mm;
         height: 297mm;
         min-height: 297mm;
@@ -6489,6 +6549,7 @@
     const QC_DEFAULT_ROWS = 15;
     let qcChecklists = {};
     let qcActiveProduct = "";
+    let qcActiveSheet = "s1";
     let qcSaveTimer = null;
     let qcPhotoTarget = null;
 
@@ -6670,9 +6731,19 @@
         </div>`;
     }
 
+    // 3 phiếu chia thành 3 mục (tab): mỗi lần chỉ xem 1 phiếu, khi xuất PDF vẫn ra đủ 3.
+    function renderQcTabs() {
+      const tabs = QC_SECTIONS.map((section) => `
+        <button type="button" class="qc-tab${section.key === qcActiveSheet ? " active" : ""}" data-qc-tab="${section.key}">
+          Phiếu ${section.no} / ${QC_SECTIONS.length}
+          <small>${escapeAccountHtml(section.vi)}</small>
+        </button>`).join("");
+      return `<div class="qc-tabs no-print">${tabs}</div>`;
+    }
+
     // Mỗi phần = 1 PHIẾU khổ A4 (đầu phiếu + thông tin sản phẩm + bảng kiểm tra).
     function renderQcPage(section, rows, product) {
-      return `<div class="qc-page" data-qc-page="${section.key}">
+      return `<div class="qc-page${section.key === qcActiveSheet ? "" : " is-hidden"}" data-qc-page="${section.key}">
         <div class="qc-page-head">
           <div>
             <div class="qc-page-title">PHIẾU KIỂM TRA CHẤT LƯỢNG</div>
@@ -6721,6 +6792,7 @@
       printRoot.id = "qcPrintRoot";
       pages.forEach((page) => {
         const clone = page.cloneNode(true);
+        clone.classList.remove("is-hidden"); // phiếu đang ở tab khác vẫn phải in ra
         clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
         clone.querySelectorAll(".no-print").forEach((node) => node.remove());
         printRoot.appendChild(clone);
@@ -6761,7 +6833,9 @@
       }
       const checklist = getQcChecklist(qcActiveProduct);
       const product = getProductCatalog().find((item) => item.code === qcActiveProduct) || { code: qcActiveProduct, name: "" };
-      container.innerHTML = QC_SECTIONS.map((section) => renderQcPage(section, checklist[section.key], product)).join("");
+      if (!QC_SECTIONS.some((section) => section.key === qcActiveSheet)) qcActiveSheet = QC_SECTIONS[0].key;
+      container.innerHTML = renderQcTabs()
+        + QC_SECTIONS.map((section) => renderQcPage(section, checklist[section.key], product)).join("");
       applyUiLanguage(container);
       updateQcCount(QC_SECTIONS.reduce((sum, section) => sum + checklist[section.key].length, 0));
     }
@@ -6898,6 +6972,13 @@
       if (!container) return;
 
       container.addEventListener("click", (event) => {
+        const tabBtn = event.target.closest("[data-qc-tab]");
+        if (tabBtn) {
+          qcActiveSheet = tabBtn.dataset.qcTab;
+          container.querySelectorAll("[data-qc-tab]").forEach((tab) => tab.classList.toggle("active", tab.dataset.qcTab === qcActiveSheet));
+          container.querySelectorAll("[data-qc-page]").forEach((page) => page.classList.toggle("is-hidden", page.dataset.qcPage !== qcActiveSheet));
+          return;
+        }
         const clearBtn = event.target.closest("[data-qc-photo-clear]");
         if (clearBtn) {
           event.stopPropagation();
@@ -15770,6 +15851,7 @@
   </script>
 </body>
 </html>
+
 
 
 
