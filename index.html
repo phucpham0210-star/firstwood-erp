@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260710124955"></script>
-  <script src="preview-images-data.js?v=20260710124955"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260711072550"></script>
+  <script src="preview-images-data.js?v=20260711072550"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -1025,7 +1025,8 @@
       grid-column: 2;
       grid-row: 2;
       min-height: 0;
-      overflow-y: auto;
+      /* Trang A4 rộng 210mm: phải cho cuộn ngang, nếu không bảng sẽ tràn khỏi khung. */
+      overflow: auto;
       padding: 0 4px 12px;
     }
 
@@ -1242,12 +1243,33 @@
       table-layout: fixed;
     }
 
+    /* Bảng dùng chung có "table { min-width: 1240px }" và ".table-shell.compact table { min-width: 1120px }".
+       Phiếu QC phải nằm gọn trong lòng A4 nên phải gỡ min-width đó bằng selector đủ mạnh. */
+    .qc-page table.qc-table,
+    .table-shell.compact .qc-page table.qc-table,
+    #qcPrintRoot table.qc-table {
+      min-width: 0;
+    }
+
+    /* Trang đủ 12 dòng thì kéo bảng giãn hết chiều cao còn lại của tờ A4,
+       trình duyệt sẽ chia đều phần dư cho 12 dòng nên không còn khoảng trống dưới đáy.
+       Trang lẻ (dòng 13 trở đi) giữ chiều cao tự nhiên, không kéo giãn. */
+    .qc-page.is-full > .qc-table {
+      flex: 1 1 auto;
+    }
+
+    .qc-page.is-full .qc-table tbody td .qc-photo {
+      height: 100%;
+      min-height: 46px;
+    }
+
     .qc-table th,
     .qc-table td {
       border: 1px solid var(--line, #2a3342);
-      padding: 6px 8px;
+      padding: 4px 6px;
       vertical-align: top;
-      font-size: 12px;
+      font-size: 11px;
+      overflow-wrap: anywhere;
     }
 
     .qc-table th {
@@ -1266,7 +1288,7 @@
     .qc-table td.qc-actions { width: 78px; text-align: center; }
 
     .qc-text {
-      min-height: 46px;
+      min-height: 40px;
       outline: 0;
       color: #e6e9ef;
       font-weight: 700;
@@ -1288,7 +1310,8 @@
     .qc-photo {
       position: relative;
       width: 100%;
-      height: 74px;
+      /* 12 dòng phải khớp 1 tờ A4: chiều cao ô ảnh là thứ quyết định chiều cao dòng. */
+      height: 46px;
       border: 1px dashed rgba(47, 127, 255, 0.45);
       border-radius: 6px;
       background: rgba(47, 127, 255, 0.06);
@@ -1311,11 +1334,12 @@
     }
 
     .qc-photo .qc-photo-hint {
-      font-size: 10px;
+      font-size: 8px;
+      line-height: 1.25;
       font-weight: 700;
       color: #6f7787;
       text-align: center;
-      padding: 4px;
+      padding: 2px;
     }
 
     .qc-photo .qc-photo-clear {
@@ -6547,6 +6571,8 @@
     ];
 
     const QC_DEFAULT_ROWS = 15;
+    // 12 dòng vừa khít 1 tờ A4; từ dòng 13 sẽ tự sang tờ tiếp theo.
+    const QC_ROWS_PER_PAGE = 12;
     let qcChecklists = {};
     let qcActiveProduct = "";
     let qcActiveSheet = "s1";
@@ -6680,7 +6706,8 @@
       </div>`;
     }
 
-    function renderQcSectionTable(section, rows) {
+    // rows = 1 lát cắt (tối đa QC_ROWS_PER_PAGE dòng); offset = số thứ tự dòng đầu trong phần.
+    function renderQcSectionTable(section, rows, offset = 0, showAddRow = true) {
       const twoPhoto = section.photos.length === 2;
       // Gán nhãn song ngữ tường minh: bộ dịch tự đoán sẽ nhầm với từ không dấu (STT, Sai...).
       const thStt = `data-i18n-vi="STT" data-i18n-en="No."`;
@@ -6690,45 +6717,79 @@
       const thNg = `data-i18n-vi="✕ Sai" data-i18n-en="✕ Wrong"`;
       const thGc = `data-i18n-vi="Ghi chú" data-i18n-en="Remarks"`;
       const thAct = `data-i18n-vi="Thao tác" data-i18n-en="Action"`;
+      // Mọi cột phải có bề rộng mm tường minh, tổng đúng lòng khổ A4 (210mm - 24mm lề = 186mm).
+      // Không được để cột nào ở chế độ auto: table-layout:fixed sẽ lấy min-content của cột đó
+      // làm bề rộng tối thiểu của cả bảng và làm bảng tràn ra ngoài trang.
+      // Khi in, cột Thao tác (16mm) bị gỡ và phần dư được chia lại cho các cột còn lại.
+      const colgroup = twoPhoto
+        ? `<colgroup>
+             <col style="width:12mm;">
+             <col style="width:55mm;">
+             <col style="width:32mm;">
+             <col style="width:32mm;">
+             <col style="width:38mm;">
+             <col class="no-print" style="width:16mm;">
+           </colgroup>`
+        : `<colgroup>
+             <col style="width:12mm;">
+             <col style="width:77mm;">
+             <col style="width:40mm;">
+             <col style="width:40mm;">
+             <col class="no-print" style="width:16mm;">
+           </colgroup>`;
       const head = twoPhoto
         ? `<tr>
-             <th rowspan="2" style="width:46px;" ${thStt}>STT<span>No.</span></th>
+             <th rowspan="2" ${thStt}>STT<span>No.</span></th>
              <th rowspan="2" ${thNd}>Nội dung kiểm tra<span>Inspection item</span></th>
              <th colspan="2" ${thPhoto}>Hình ảnh minh hoạ<span>Photo</span></th>
-             <th rowspan="2" style="width:150px;" ${thGc}>Ghi chú<span>Remarks</span></th>
-             <th rowspan="2" class="qc-actions-head no-print" style="width:60px;" ${thAct}>Thao tác<span>Action</span></th>
+             <th rowspan="2" ${thGc}>Ghi chú<span>Remarks</span></th>
+             <th rowspan="2" class="qc-actions-head no-print" ${thAct}>Thao tác<span>Action</span></th>
            </tr>
            <tr>
-             <th class="qc-ok" style="width:110px;" ${thOk}>✓ Đúng<span>✓ Correct</span></th>
-             <th class="qc-ng" style="width:110px;" ${thNg}>✕ Sai<span>✕ Wrong</span></th>
+             <th class="qc-ok" ${thOk}>✓ Đúng<span>✓ Correct</span></th>
+             <th class="qc-ng" ${thNg}>✕ Sai<span>✕ Wrong</span></th>
            </tr>`
         : `<tr>
-             <th style="width:46px;" ${thStt}>STT<span>No.</span></th>
+             <th ${thStt}>STT<span>No.</span></th>
              <th ${thNd}>Nội dung kiểm tra<span>Inspection item</span></th>
-             <th style="width:150px;" ${thPhoto}>Hình ảnh minh hoạ<span>Photo</span></th>
-             <th style="width:150px;" ${thGc}>Ghi chú<span>Remarks</span></th>
-             <th class="qc-actions-head no-print" style="width:60px;" ${thAct}>Thao tác<span>Action</span></th>
+             <th ${thPhoto}>Hình ảnh minh hoạ<span>Photo</span></th>
+             <th ${thGc}>Ghi chú<span>Remarks</span></th>
+             <th class="qc-actions-head no-print" ${thAct}>Thao tác<span>Action</span></th>
            </tr>`;
-      const columnCount = twoPhoto ? 6 : 5;
       const body = rows.map((row, index) => {
+        const rowIndex = offset + index;
         const photoCells = section.photos
-          .map((photo) => `<td>${renderQcPhotoCell(section.key, index, photo.key, row[photo.key] || "")}</td>`)
+          .map((photo) => `<td>${renderQcPhotoCell(section.key, rowIndex, photo.key, row[photo.key] || "")}</td>`)
           .join("");
-        return `<tr data-qc-section="${section.key}" data-qc-row="${index}">
-          <td class="qc-no">${index + 1}</td>
+        return `<tr data-qc-section="${section.key}" data-qc-row="${rowIndex}">
+          <td class="qc-no">${rowIndex + 1}</td>
           <td><div class="qc-text" contenteditable="true" data-qc-field="nd" data-placeholder="Nội dung kiểm tra...">${escapeAccountHtml(row.nd || "")}</div></td>
           ${photoCells}
           <td><div class="qc-text" contenteditable="true" data-qc-field="gc" data-placeholder="Ghi chú...">${escapeAccountHtml(row.gc || "")}</div></td>
           <td class="qc-actions no-print"><button class="mini-action danger" type="button" data-qc-delete-row>Xóa</button></td>
         </tr>`;
       }).join("");
+      const tools = showAddRow
+        ? `<div class="qc-page-tools no-print">
+             <button class="mini-action primary" type="button" data-qc-add-row data-qc-section="${section.key}">+ Thêm dòng</button>
+           </div>`
+        : "";
       return `<table class="qc-table">
+          ${colgroup}
           <thead>${head}</thead>
           <tbody>${body}</tbody>
-        </table>
-        <div class="qc-page-tools no-print">
-          <button class="mini-action primary" type="button" data-qc-add-row data-qc-section="${section.key}">+ Thêm dòng</button>
-        </div>`;
+        </table>${tools}`;
+    }
+
+    // Cắt danh sách dòng thành từng trang A4: 12 dòng/trang, dòng thứ 13 sang trang kế tiếp.
+    function chunkQcRows(rows) {
+      const list = Array.isArray(rows) ? rows : [];
+      const chunks = [];
+      for (let index = 0; index < list.length; index += QC_ROWS_PER_PAGE) {
+        chunks.push({ offset: index, rows: list.slice(index, index + QC_ROWS_PER_PAGE) });
+      }
+      if (!chunks.length) chunks.push({ offset: 0, rows: [] });
+      return chunks;
     }
 
     // 3 phiếu chia thành 3 mục (tab): mỗi lần chỉ xem 1 phiếu, khi xuất PDF vẫn ra đủ 3.
@@ -6741,15 +6802,18 @@
       return `<div class="qc-tabs no-print">${tabs}</div>`;
     }
 
-    // Mỗi phần = 1 PHIẾU khổ A4 (đầu phiếu + thông tin sản phẩm + bảng kiểm tra).
-    function renderQcPage(section, rows, product) {
-      return `<div class="qc-page${section.key === qcActiveSheet ? "" : " is-hidden"}" data-qc-page="${section.key}">
+    // Mỗi trang = 1 tờ A4 (đầu phiếu + thông tin sản phẩm + tối đa 12 dòng kiểm tra).
+    // Một phiếu dài hơn 12 dòng sẽ tự tràn sang tờ A4 kế tiếp, đầu tờ được lặp lại.
+    function renderQcPage(section, chunk, product, pageNo, totalPages, chunkIndex, isLastChunk) {
+      const continued = chunkIndex > 0 ? ` <em>(tiếp theo / continued)</em>` : "";
+      const fullClass = chunk.rows.length === QC_ROWS_PER_PAGE ? " is-full" : "";
+      return `<div class="qc-page${fullClass}${section.key === qcActiveSheet ? "" : " is-hidden"}" data-qc-page="${section.key}">
         <div class="qc-page-head">
           <div>
             <div class="qc-page-title">PHIẾU KIỂM TRA CHẤT LƯỢNG</div>
             <div class="qc-page-subtitle">Assembly Quality Inspection Checklist</div>
           </div>
-          <div class="qc-page-no">Tờ / Sheet ${section.no} / ${QC_SECTIONS.length}</div>
+          <div class="qc-page-no">Tờ / Sheet ${pageNo} / ${totalPages}</div>
         </div>
 
         <div class="qc-meta">
@@ -6769,12 +6833,12 @@
         <div class="qc-section-head">
           <div class="qc-section-no">${section.no}</div>
           <div>
-            <div class="qc-section-vi">${section.vi}</div>
+            <div class="qc-section-vi">${section.vi}${continued}</div>
             <div class="qc-section-en">${section.en}</div>
           </div>
         </div>
 
-        ${renderQcSectionTable(section, rows)}
+        ${renderQcSectionTable(section, chunk.rows, chunk.offset, isLastChunk)}
       </div>`;
     }
 
@@ -6834,8 +6898,17 @@
       const checklist = getQcChecklist(qcActiveProduct);
       const product = getProductCatalog().find((item) => item.code === qcActiveProduct) || { code: qcActiveProduct, name: "" };
       if (!QC_SECTIONS.some((section) => section.key === qcActiveSheet)) qcActiveSheet = QC_SECTIONS[0].key;
-      container.innerHTML = renderQcTabs()
-        + QC_SECTIONS.map((section) => renderQcPage(section, checklist[section.key], product)).join("");
+
+      const chunksBySection = QC_SECTIONS.map((section) => chunkQcRows(checklist[section.key]));
+      const totalPages = chunksBySection.reduce((sum, chunks) => sum + chunks.length, 0);
+      let pageNo = 0;
+      const pagesHtml = QC_SECTIONS.map((section, sectionIndex) => chunksBySection[sectionIndex]
+        .map((chunk, chunkIndex, all) => {
+          pageNo += 1;
+          return renderQcPage(section, chunk, product, pageNo, totalPages, chunkIndex, chunkIndex === all.length - 1);
+        }).join("")).join("");
+
+      container.innerHTML = renderQcTabs() + pagesHtml;
       applyUiLanguage(container);
       updateQcCount(QC_SECTIONS.reduce((sum, section) => sum + checklist[section.key].length, 0));
     }
@@ -15851,6 +15924,7 @@
   </script>
 </body>
 </html>
+
 
 
 
