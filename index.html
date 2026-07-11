@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260711072550"></script>
-  <script src="preview-images-data.js?v=20260711072550"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260711171445"></script>
+  <script src="preview-images-data.js?v=20260711171445"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -5139,7 +5139,7 @@
         const visible = controls.every((control) => {
           const value = control.value.trim();
           if (isAllValue(value)) return true;
-          return rowText.includes(value.toLowerCase());
+          return matchesMultiFilter(rowText, value);
         });
       row.classList.toggle("is-hidden", !visible);
       if (visible) visibleRows += 1;
@@ -6365,7 +6365,7 @@
       const values = rows
         .filter((row) => !row.matches("[data-bom-entry-row]"))
         .filter((row) => !activeBom || row.dataset.bomParent === activeBom)
-        .filter((row) => activeCriteria.every((item) => getCriterionText(row, item.filterColumn).toLowerCase().includes(item.value.toLowerCase())))
+        .filter((row) => activeCriteria.every((item) => matchesMultiFilter(getCriterionText(row, item.filterColumn), item.value)))
         .map((row) => getCriterionText(row, filterColumn))
         .filter(Boolean);
       return [...new Set(values)].sort((a, b) => a.localeCompare(b));
@@ -6375,7 +6375,8 @@
       if (select?.tagName === "INPUT") {
         select.placeholder = placeholder || "Gõ một phần để lọc";
         const listId = select.getAttribute("list");
-        if (listId) fillDatalist(listId, options.map((option) => String(option.value ?? option)));
+        // Ô giá trị lọc cũng hỗ trợ nhiều mã: gợi ý mã kế tiếp sau dấu phẩy.
+        if (listId) fillMultiDatalist(listId, select, options.map((option) => String(option.value ?? option)));
         return;
       }
       select.innerHTML = "";
@@ -6422,11 +6423,11 @@
     }
 
     function applyModalFilter() {
-      const search = document.getElementById("modalSearch").value.trim().toLowerCase();
+      const search = document.getElementById("modalSearch").value.trim();
       const filterColumns = getFilterColumns(filterTable);
       const criteria = Array.from(document.querySelectorAll(".criteria-row")).map((row) => ({
         filterColumn: filterColumns.find((column) => column.key === row.querySelector(".filter-field").value),
-        value: row.querySelector(".filter-value").value.trim().toLowerCase()
+        value: row.querySelector(".filter-value").value.trim()
       })).filter((item) => item.filterColumn && item.value !== "");
       const rows = Array.from(filterTable.tBodies[0]?.rows || []);
       let visibleRows = 0;
@@ -6437,13 +6438,10 @@
           return;
         }
         const rowText = getTableSearchText(row);
-        const searchMatch = !search || rowText.includes(search);
+        const searchMatch = matchesMultiFilter(rowText, search);
         const activeBom = filterTable.querySelector("[data-bom-body]") ? document.querySelector(".bom-product-card.active")?.dataset.bomCard : "";
         const bomMatch = !activeBom || row.dataset.bomParent === activeBom;
-        const criteriaMatch = criteria.every((item) => {
-          const cellText = getCriterionText(row, item.filterColumn).toLowerCase();
-          return cellText.includes(item.value);
-        });
+        const criteriaMatch = criteria.every((item) => matchesMultiFilter(getCriterionText(row, item.filterColumn), item.value));
         const visible = searchMatch && criteriaMatch && bomMatch;
         row.classList.toggle("is-hidden", !visible);
         if (visible) visibleRows += 1;
@@ -7311,15 +7309,33 @@
       });
     }
 
+    // ===== Bộ lọc nhiều mã dùng chung cho TOÀN BỘ ô lọc trong app =====
+    // Người dùng gõ nhiều mã cách nhau bằng dấu phẩy; một dòng khớp nếu trùng BẤT KỲ mã nào.
+    // Một mã (không có dấu phẩy) vẫn chạy y như cũ nên hoàn toàn tương thích ngược.
+    function getFilterTokens(filterValue) {
+      return String(filterValue || "")
+        .split(",")
+        .map((token) => token.replace(/\s+/g, " ").trim().toLowerCase())
+        .filter(Boolean);
+    }
+
+    function matchesMultiFilter(value, filterValue) {
+      const tokens = getFilterTokens(filterValue);
+      if (!tokens.length) return true;
+      const text = String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+      return tokens.some((token) => text.includes(token));
+    }
+
     // Datalist cho ô lọc nhiều mã: gợi ý mã kế tiếp sau dấu phẩy (giữ phần đã nhập trước đó làm tiền tố).
-    function fillSheet1MultiDatalist(listId, inputId, values) {
+    // inputRef nhận id (chuỗi) hoặc chính phần tử input.
+    function fillMultiDatalist(listId, inputRef, values) {
       const list = document.getElementById(listId);
       if (!list) return;
-      const input = document.getElementById(inputId);
+      const input = typeof inputRef === "string" ? document.getElementById(inputRef) : inputRef;
       const raw = input ? input.value : "";
       const lastComma = raw.lastIndexOf(",");
       const prefix = lastComma >= 0 ? `${raw.slice(0, lastComma + 1)} ` : "";
-      const chosen = new Set(getSheet1MultiTokens(raw));
+      const chosen = new Set(getFilterTokens(raw));
       const options = [...new Set(values.filter(Boolean).map((value) => String(value)))]
         .filter((value) => !chosen.has(value.toLowerCase()))
         .map((value) => `${prefix}${value}`);
@@ -7332,6 +7348,11 @@
         option.value = value;
         list.appendChild(option);
       });
+    }
+
+    // Giữ tên cũ để không phá vỡ các lời gọi sẵn có (Sheet 1 phần cứng FW/PP).
+    function fillSheet1MultiDatalist(listId, inputId, values) {
+      fillMultiDatalist(listId, inputId, values);
     }
 
     function refreshBomHardwareSuggestions() {
@@ -8334,15 +8355,11 @@
     }
 
     function matchesImportSupplier(supplier, filterValue) {
-      const supplierText = normalizeImportFilterText(supplier);
-      const filterText = normalizeImportFilterText(filterValue);
-      return !filterText || supplierText.includes(filterText);
+      return matchesMultiFilter(supplier, filterValue);
     }
 
     function matchesImportText(value, filterValue) {
-      const text = normalizeImportFilterText(value);
-      const filterText = normalizeImportFilterText(filterValue);
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function syncImportFilterControls() {
@@ -8416,12 +8433,12 @@
       const suppliers = [...new Set(importShipments.map(s => s.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b));
       const statuses = getOptionsFor('status');
 
-      fillDatalist("importInvoiceFilterList", invoices);
-      fillDatalist("importNameFilterList", names);
-      fillDatalist("importFwFilterList", fws);
-      fillDatalist("importPpFilterList", pps);
-      fillDatalist("importSenderFilterList", suppliers);
-      fillDatalist("importStatusFilterList", statuses);
+      fillMultiDatalist("importInvoiceFilterList", "importFilterInvoice", invoices);
+      fillMultiDatalist("importNameFilterList", "importFilterName", names);
+      fillMultiDatalist("importFwFilterList", "importFilterFw", fws);
+      fillMultiDatalist("importPpFilterList", "importFilterPp", pps);
+      fillMultiDatalist("importSenderFilterList", "importFilterSupplier", suppliers);
+      fillMultiDatalist("importStatusFilterList", "importFilterStatus", statuses);
     }
 
     function updateSelectOptions(elementId, values, currentValue, placeholder) {
@@ -8566,25 +8583,17 @@
       return Array.from(table?.tBodies[0]?.rows || []);
     }
 
+    // Mọi ô lọc Sheet 1 dùng chung bộ lọc nhiều mã (matchesMultiFilter).
     function matchesSheet1Filter(value, filterValue) {
-      const text = String(value || "").trim().toLowerCase();
-      const filterText = String(filterValue || "").trim().toLowerCase();
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
-    // Lọc nhiều mã cùng lúc: nhập các mã cách nhau bằng dấu phẩy, khớp nếu trùng BẤT KỲ mã nào.
     function getSheet1MultiTokens(filterValue) {
-      return String(filterValue || "")
-        .split(",")
-        .map((token) => token.replace(/\s+/g, " ").trim().toLowerCase())
-        .filter(Boolean);
+      return getFilterTokens(filterValue);
     }
 
     function matchesSheet1FilterMulti(value, filterValue) {
-      const tokens = getSheet1MultiTokens(filterValue);
-      if (!tokens.length) return true;
-      const text = String(value || "").trim().toLowerCase();
-      return tokens.some((token) => text.includes(token));
+      return matchesMultiFilter(value, filterValue);
     }
 
     function updateSheet1FilterOptions() {
@@ -8665,17 +8674,17 @@
         .filter(Boolean)
       )].sort((a, b) => a.localeCompare(b));
 
-      fillDatalist("sheet1ProductCodeFilterList", pCodes);
-      fillDatalist("sheet1ProductNameFilterList", pNames);
-      fillDatalist("sheet1ProductStatusFilterList", pStatuses);
+      fillMultiDatalist("sheet1ProductCodeFilterList", "sheet1ProductFilterCode", pCodes);
+      fillMultiDatalist("sheet1ProductNameFilterList", "sheet1ProductFilterName", pNames);
+      fillMultiDatalist("sheet1ProductStatusFilterList", "sheet1ProductFilterStatus", pStatuses);
 
-      fillDatalist("sheet1HardwareNameFilterList", hNames);
-      fillSheet1MultiDatalist("sheet1HardwareFwFilterList", "sheet1HardwareFilterFw", hFws);
-      fillSheet1MultiDatalist("sheet1HardwarePpFilterList", "sheet1HardwareFilterPp", hPps);
-      fillDatalist("sheet1HardwareSupplierFilterList", hSuppliers);
-      fillDatalist("sheet1HardwareStatusFilterList", hStatuses);
-      fillDatalist("sheet1ProductionHardwareNameFilterList", phNames);
-      fillDatalist("sheet1ProductionHardwarePpFilterList", phPps);
+      fillMultiDatalist("sheet1HardwareNameFilterList", "sheet1HardwareFilterName", hNames);
+      fillMultiDatalist("sheet1HardwareFwFilterList", "sheet1HardwareFilterFw", hFws);
+      fillMultiDatalist("sheet1HardwarePpFilterList", "sheet1HardwareFilterPp", hPps);
+      fillMultiDatalist("sheet1HardwareSupplierFilterList", "sheet1HardwareFilterSupplier", hSuppliers);
+      fillMultiDatalist("sheet1HardwareStatusFilterList", "sheet1HardwareFilterStatus", hStatuses);
+      fillMultiDatalist("sheet1ProductionHardwareNameFilterList", "sheet1ProductionHardwareFilterName", phNames);
+      fillMultiDatalist("sheet1ProductionHardwarePpFilterList", "sheet1ProductionHardwareFilterPp", phPps);
     }
 
     function applySheet1Filters() {
@@ -8762,9 +8771,7 @@
     }
 
     function matchesSheet2Filter(value, filterValue) {
-      const text = String(value || "").trim().toLowerCase();
-      const filterText = String(filterValue || "").trim().toLowerCase();
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function getSheet2RowText(row, columnIndex) {
@@ -8859,13 +8866,13 @@
       const suppliers = getOptions('supplier');
       const statuses = getOptions('status');
 
-      fillDatalist("sheet2ProductCodeFilterList", productCodes);
-      fillDatalist("sheet2NameFilterList", names);
-      fillDatalist("sheet2FwFilterList", fws);
-      fillDatalist("sheet2PpFilterList", pps);
-      fillDatalist("sheet2MaterialFilterList", materials);
-      fillDatalist("sheet2SupplierFilterList", suppliers);
-      fillDatalist("sheet2StatusFilterList", statuses);
+      fillMultiDatalist("sheet2ProductCodeFilterList", "sheet2FilterProductCode", productCodes);
+      fillMultiDatalist("sheet2NameFilterList", "sheet2FilterName", names);
+      fillMultiDatalist("sheet2FwFilterList", "sheet2FilterFw", fws);
+      fillMultiDatalist("sheet2PpFilterList", "sheet2FilterPp", pps);
+      fillMultiDatalist("sheet2MaterialFilterList", "sheet2FilterMaterial", materials);
+      fillMultiDatalist("sheet2SupplierFilterList", "sheet2FilterSupplier", suppliers);
+      fillMultiDatalist("sheet2StatusFilterList", "sheet2FilterStatus", statuses);
     }
 
     function applySheet2Filters() {
@@ -8922,9 +8929,7 @@
     let sheet5WorkOrderFilters = { woNo: "", productCode: "", productName: "", orderNo: "" };
 
     function matchesSheet5Filter(value, filterValue) {
-      const text = String(value || "").trim().toLowerCase();
-      const filterText = String(filterValue || "").trim().toLowerCase();
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function getSheet5OrderLineRows() {
@@ -8954,15 +8959,15 @@
 
     function updateSheet5FilterOptions() {
       const orderRows = getSheet5OrderLineRows();
-      fillDatalist("sheet5OrderFilterOrderNoList", orderRows.map(row => row.order.orderNo));
-      fillDatalist("sheet5OrderFilterProductCodeList", orderRows.map(row => row.item.productCode));
-      fillDatalist("sheet5OrderFilterProductNameList", orderRows.map(row => row.item.productName));
+      fillMultiDatalist("sheet5OrderFilterOrderNoList", "sheet5OrderFilterOrderNo", orderRows.map(row => row.order.orderNo));
+      fillMultiDatalist("sheet5OrderFilterProductCodeList", "sheet5OrderFilterProductCode", orderRows.map(row => row.item.productCode));
+      fillMultiDatalist("sheet5OrderFilterProductNameList", "sheet5OrderFilterProductName", orderRows.map(row => row.item.productName));
 
       const workOrderRows = productionAllocations.filter(item => !item.isHeader);
-      fillDatalist("sheet5WoFilterWoNoList", workOrderRows.map(item => item.woNo));
-      fillDatalist("sheet5WoFilterProductCodeList", workOrderRows.map(item => item.productCode));
-      fillDatalist("sheet5WoFilterProductNameList", workOrderRows.map(item => item.productName));
-      fillDatalist("sheet5WoFilterOrderNoList", workOrderRows.flatMap(item => getAllocationLines(item).map(line => line.orderNo)));
+      fillMultiDatalist("sheet5WoFilterWoNoList", "sheet5WoFilterWoNo", workOrderRows.map(item => item.woNo));
+      fillMultiDatalist("sheet5WoFilterProductCodeList", "sheet5WoFilterProductCode", workOrderRows.map(item => item.productCode));
+      fillMultiDatalist("sheet5WoFilterProductNameList", "sheet5WoFilterProductName", workOrderRows.map(item => item.productName));
+      fillMultiDatalist("sheet5WoFilterOrderNoList", "sheet5WoFilterOrderNo", workOrderRows.flatMap(item => getAllocationLines(item).map(line => line.orderNo)));
     }
 
     let sheet5FilterOptionsTimer = null;
@@ -10048,9 +10053,7 @@
     }
 
     function matchesWarehouseFilter(value, filterValue) {
-      const filterText = normalizeWarehouseFilterText(filterValue);
-      if (!filterText) return true;
-      return normalizeWarehouseFilterText(value).includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function getActiveWarehouseTab() {
@@ -10106,20 +10109,20 @@
 
     function updateWarehouseFilterOptions() {
       const stockRows = Array.from(document.querySelectorAll("[data-warehouse-stock-table] tbody tr[data-warehouse-filter-row]"));
-      fillDatalist("warehouseStockFwFilterList", stockRows.map(row => row.dataset.filterFw));
-      fillDatalist("warehouseStockPpFilterList", stockRows.map(row => row.dataset.filterPp));
-      fillDatalist("warehouseStockNameFilterList", stockRows.map(row => row.dataset.filterName));
+      fillMultiDatalist("warehouseStockFwFilterList", "warehouseStockFilterFw", stockRows.map(row => row.dataset.filterFw));
+      fillMultiDatalist("warehouseStockPpFilterList", "warehouseStockFilterPp", stockRows.map(row => row.dataset.filterPp));
+      fillMultiDatalist("warehouseStockNameFilterList", "warehouseStockFilterName", stockRows.map(row => row.dataset.filterName));
 
       const pendingRows = Array.from(document.querySelectorAll('[data-warehouse-panel="cho-san-xuat"] tbody tr[data-warehouse-filter-row]'));
-      fillDatalist("warehousePendingFwFilterList", pendingRows.map(row => row.dataset.filterFw));
-      fillDatalist("warehousePendingPpFilterList", pendingRows.map(row => row.dataset.filterPp));
-      fillDatalist("warehousePendingNameFilterList", pendingRows.map(row => row.dataset.filterName));
-      fillDatalist("warehousePendingWoFilterList", pendingRows.map(row => row.dataset.filterWo));
+      fillMultiDatalist("warehousePendingFwFilterList", "warehousePendingFilterFw", pendingRows.map(row => row.dataset.filterFw));
+      fillMultiDatalist("warehousePendingPpFilterList", "warehousePendingFilterPp", pendingRows.map(row => row.dataset.filterPp));
+      fillMultiDatalist("warehousePendingNameFilterList", "warehousePendingFilterName", pendingRows.map(row => row.dataset.filterName));
+      fillMultiDatalist("warehousePendingWoFilterList", "warehousePendingFilterWo", pendingRows.map(row => row.dataset.filterWo));
 
       const defectiveRows = Array.from(document.querySelectorAll('[data-warehouse-panel="phan-cung-loi"] tbody tr[data-warehouse-filter-row]'));
-      fillDatalist("warehouseDefectiveFwFilterList", defectiveRows.map(row => row.dataset.filterFw));
-      fillDatalist("warehouseDefectivePpFilterList", defectiveRows.map(row => row.dataset.filterPp));
-      fillDatalist("warehouseDefectiveNameFilterList", defectiveRows.map(row => row.dataset.filterName));
+      fillMultiDatalist("warehouseDefectiveFwFilterList", "warehouseDefectiveFilterFw", defectiveRows.map(row => row.dataset.filterFw));
+      fillMultiDatalist("warehouseDefectivePpFilterList", "warehouseDefectiveFilterPp", defectiveRows.map(row => row.dataset.filterPp));
+      fillMultiDatalist("warehouseDefectiveNameFilterList", "warehouseDefectiveFilterName", defectiveRows.map(row => row.dataset.filterName));
     }
 
     function applyWarehouseFilters() {
@@ -12684,9 +12687,10 @@
     });
 
     document.querySelectorAll(".filter-value").forEach((valueSelect) => {
+      // Bắt đầu từ chính dòng hiện tại để cập nhật luôn gợi ý nhiều mã (sau dấu phẩy) của ô đang gõ.
       const refreshFollowingValues = () => {
         const rows = Array.from(document.querySelectorAll(".criteria-row"));
-        const startIndex = rows.indexOf(valueSelect.closest(".criteria-row")) + 1;
+        const startIndex = rows.indexOf(valueSelect.closest(".criteria-row"));
         rows.slice(startIndex).forEach((row) => updateFilterValue(row.querySelector(".filter-field")));
       };
       valueSelect.addEventListener("input", () => scheduleFilterWork("modal-filter-values", refreshFollowingValues, 120));
@@ -15924,6 +15928,7 @@
   </script>
 </body>
 </html>
+
 
 
 
