@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260712232539"></script>
-  <script src="preview-images-data.js?v=20260712232539"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260712235050"></script>
+  <script src="preview-images-data.js?v=20260712235050"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -2545,6 +2545,83 @@
         padding: 0 8px;
       }
     }
+
+    /* =====================================================================
+       NÂNG CẤP GIAO DIỆN ĐIỆN THOẠI — bổ sung, KHÔNG đổi giao diện desktop.
+       Mục tiêu: dùng đủ mọi chức năng, chạm dễ, không tràn ngang trang,
+       giữ CỘT ĐẦU + HÀNG TIÊU ĐỀ khi cuộn bảng rộng.
+       ===================================================================== */
+    @media (max-width: 760px) {
+      html { -webkit-text-size-adjust: 100%; }
+
+      /* Không cho cả trang bị kéo ngang; chỉ BẢNG mới được cuộn ngang trong khung riêng của nó. */
+      html, body { overflow-x: hidden; }
+      body { overflow-x: hidden; }
+      .app, .main, .sheet-view, .sheet-panel,
+      .dashboard, .toolbar, .section-head, .sheet-tools { max-width: 100%; }
+
+      /* Chống iOS tự phóng to khi chạm ô nhập (font < 16px sẽ bị zoom giật). */
+      input, select, textarea, [contenteditable="true"],
+      .control, .bom-inline-input, .bom-inline-edit, .bom-inline-select {
+        font-size: 16px;
+      }
+
+      /* --- Header gọn; các nút tiện ích xuống dòng để thấy HẾT (không phải bới cuộn) --- */
+      .top-nav { padding: 8px 10px; gap: 8px; overflow: hidden; }
+      .nav-actions { flex-wrap: wrap; overflow-x: visible; row-gap: 8px; }
+      .action-btn { min-width: 0; height: 42px; padding: 0 12px; }
+      .language-btn { min-width: 46px; height: 36px; }
+
+      /* --- Tab điều hướng chính: to, dễ chạm, cuộn ngang mượt --- */
+      .nav-menu { gap: 8px; scroll-snap-type: x proximity; }
+      .nav-item {
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: rgba(47, 127, 255, 0.06);
+        scroll-snap-align: start;
+      }
+      .nav-item.active { background: rgba(47, 127, 255, 0.18); }
+
+      /* --- Bảng dữ liệu: cố định CỘT ĐẦU khi cuộn ngang (hàng tiêu đề vốn đã cố định sẵn) --- */
+      .table-wrap { overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+      .table-wrap table td:first-child,
+      .table-wrap table th:first-child {
+        position: sticky;
+        left: 0;
+        background: var(--surface);
+        box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.55);
+      }
+      .table-wrap table td:first-child { z-index: 3; }
+      .table-wrap table thead th:first-child { z-index: 6; background: var(--surface-2); }
+      .table-wrap table tbody tr:hover td:first-child { background: #111a29; }
+      .table-wrap table tbody tr.editing-row td:first-child { background: #111f33; }
+
+      /* Ảnh preview nhỏ lại cho gọn màn hình điện thoại. */
+      .preview-box { width: 52px; height: 52px; }
+
+      /* --- Nút/ô trong bảng to hơn để dễ chạm bằng ngón tay --- */
+      .mini-action { min-height: 36px; padding: 7px 13px; font-size: 12px; }
+      .row-actions { gap: 8px; }
+      .control { min-height: 42px; }
+      .bom-inline-input, .bom-inline-edit, .bom-inline-select { min-height: 40px; }
+      td[contenteditable="true"] { min-height: 40px; }
+
+      /* --- Bộ lọc/thanh công cụ: ô nhập rộng hết chiều ngang cho dễ bấm --- */
+      .filter-bar .control, .sheet-filters .control, .toolbar .control {
+        flex: 1 1 100%;
+        min-width: 0;
+      }
+
+      /* Trạng thái lưu nhỏ gọn ở góc, không che nút. */
+      .save-status { right: 10px; bottom: 10px; padding: 6px 9px; font-size: 10px; }
+    }
+
+    @media (max-width: 480px) {
+      .brand-subtitle { display: none; }
+      .preview-box { width: 46px; height: 46px; }
+      .action-btn { height: 40px; font-size: 11px; }
+      .nav-item strong { font-size: 12px; }
+    }
   </style>
 </head>
 <body>
@@ -3117,7 +3194,7 @@
                     </tr>
                   </thead>
                   <tbody data-bom-body>
-                    <tr class="bom-entry-row" data-bom-entry-row><td><div class="preview-box"></div></td><td><input class="bom-inline-input" data-bom-autofill="name" list="bomEligibleHardwareNames"></td><td><input class="bom-inline-input" data-bom-autofill="fw" list="bomEligibleHardwareFw"></td><td><input class="bom-inline-input" data-bom-autofill="pp" list="bomEligibleHardwarePp"></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="qty"></span></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="material"></span></td><td><span class="bom-inline-edit" data-bom-target="uom"></span></td><td><select class="bom-inline-select" data-bom-target="department"><option value="">-- Chọn --</option><option value="Lắp ráp">Lắp ráp</option><option value="Lắp ráp đóng gói">Lắp ráp đóng gói</option><option value="Đóng gói bao bì">Đóng gói bao bì</option><option value="Khác">Khác</option></select></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="supplier"></span></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="status"></span></td><td><div class="row-actions"><button class="mini-action primary" data-bom-save-new>Lưu</button><button class="mini-action danger" data-bom-clear-new>Xóa</button></div></td></tr>
+                    <tr class="bom-entry-row" data-bom-entry-row><td><div class="preview-box"></div></td><td><input class="bom-inline-input" data-bom-autofill="name" list="bomEligibleHardwareNames"></td><td><input class="bom-inline-input" data-bom-autofill="fw" list="bomEligibleHardwareFw"></td><td><input class="bom-inline-input" data-bom-autofill="pp" list="bomEligibleHardwarePp"></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="qty"></span></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="material"></span></td><td><span class="bom-inline-edit" data-bom-target="uom"></span></td><td><input class="bom-inline-input" data-bom-target="department" list="bomDepartmentOptions" placeholder="Bộ phận..."></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="supplier"></span></td><td><span class="bom-inline-edit" contenteditable="true" data-bom-target="status"></span></td><td><div class="row-actions"><button class="mini-action primary" data-bom-save-new>Lưu</button><button class="mini-action danger" data-bom-clear-new>Xóa</button></div></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -3319,6 +3396,11 @@
   <datalist id="bomEligibleHardwarePp"></datalist>
   <datalist id="productionChildHardwareNames"></datalist>
   <datalist id="productionChildHardwarePp"></datalist>
+  <datalist id="bomDepartmentOptions">
+    <option value="Lắp ráp / ráp"></option>
+    <option value="Đóng gói / ráp"></option>
+    <option value="Vật tư đóng gói"></option>
+  </datalist>
   <datalist id="sheet1ProductCodeFilterList"></datalist>
   <datalist id="sheet1ProductNameFilterList"></datalist>
   <datalist id="sheet1ProductStatusFilterList"></datalist>
@@ -5334,6 +5416,17 @@
       document.querySelectorAll("[data-bom-body] tr:not([data-bom-entry-row])").forEach((row) => applyToCell(row.cells[8]));
     }
 
+    // Đổi tên bộ phận cũ -> mới cho cột "Bộ phận" của bảng BOM (Định mức chuẩn) khi tải dữ liệu.
+    function normalizeBomDepartmentDisplays() {
+      document.querySelectorAll("[data-bom-body] tr:not([data-bom-entry-row])").forEach((row) => {
+        const cell = row.cells[7];
+        if (!cell || cell.querySelector("select") || cell.querySelector("input")) return;
+        const current = cell.innerText.replace(/\s+/g, " ").trim();
+        const normalized = normalizeBomDepartment(current);
+        if (normalized !== current) cell.textContent = normalized;
+      });
+    }
+
     function ensureProductPartNumberCells() {
       document.querySelectorAll("[data-product-table] tbody tr").forEach((row) => {
         // Dữ liệu cũ (trước khi có cột Part Number) sẽ được chèn thêm ô rỗng ở đúng vị trí (index 2) khi tải.
@@ -6079,9 +6172,16 @@
       const newName = String(newHardware?.name || "").trim() || "-";
       const newFw = String(newHardware?.fw || "").trim() || "-";
       const newPp = String(newHardware?.pp || "").trim() || "-";
+      // Các trường master chỉ đồng bộ khi được truyền vào (null = giữ nguyên giá trị BOM, không đụng tới).
+      const newMaterial = newHardware?.material != null ? (String(newHardware.material).trim() || "-") : null;
+      const newUom = newHardware?.uom != null ? (normalizeDownstreamUom(String(newHardware.uom)) || "-") : null;
+      const newSupplier = newHardware?.supplier != null ? (normalizeSupplier(String(newHardware.supplier)) || "-") : null;
+      const newStatus = newHardware?.status != null ? (String(newHardware.status).trim() || "Other") : null;
       let updatedRows = 0;
 
       document.querySelectorAll("[data-bom-body] tr:not([data-bom-entry-row])").forEach((bomRow) => {
+        // Không đụng vào dòng BOM đang được sửa (tránh làm hỏng ô nhập đang mở).
+        if (bomRow.classList.contains("editing-row")) return;
         // Dùng textContent (không ép trình duyệt tính lại layout như innerText) để tránh giật khi quét toàn bộ dòng BOM.
         const rowName = normalizeHardwareKey(bomRow.cells[1]?.textContent);
         const rowFw = normalizeHardwareKey(bomRow.cells[2]?.textContent);
@@ -6094,6 +6194,11 @@
         bomRow.cells[1].textContent = newName;
         bomRow.cells[2].textContent = newFw;
         bomRow.cells[3].textContent = newPp;
+        // Đồng bộ các trường BOM kế thừa từ mã phần cứng. GIỮ NGUYÊN Số lượng & Bộ phận (dữ liệu riêng của từng BOM).
+        if (newMaterial != null && bomRow.cells[5]) bomRow.cells[5].textContent = newMaterial;
+        if (newUom != null && bomRow.cells[6]) bomRow.cells[6].textContent = newUom;
+        if (newSupplier != null && bomRow.cells[8]) bomRow.cells[8].textContent = newSupplier;
+        if (newStatus != null && bomRow.cells[9]) bomRow.cells[9].innerHTML = renderStatusBadge(newStatus);
         updatedRows += 1;
       });
 
@@ -6265,7 +6370,12 @@
             newHardware: {
               name: row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "",
               fw: row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "",
-              pp: currentPp
+              pp: currentPp,
+              // Các trường master mà BOM kế thừa từ mã phần cứng -> đồng bộ sang bảng Định mức chuẩn.
+              material: row.cells[6]?.innerText.replace(/\s+/g, " ").trim() || "",
+              uom: row.cells[7]?.innerText.replace(/\s+/g, " ").trim() || "",
+              supplier: row.cells[8]?.innerText.replace(/\s+/g, " ").trim() || "",
+              status: row.cells[9]?.innerText.replace(/\s+/g, " ").trim() || ""
             }
           };
         }
@@ -11028,7 +11138,18 @@
     }
 
     // Cột "Bộ phận": ô chọn cố định để tránh nhập sai chính tả.
-    const BOM_DEPARTMENT_OPTIONS = ["Lắp ráp", "Lắp ráp đóng gói", "Đóng gói bao bì", "Khác"];
+    const BOM_DEPARTMENT_OPTIONS = ["Lắp ráp / ráp", "Đóng gói / ráp", "Vật tư đóng gói"];
+
+    // Đổi tên các bộ phận cũ sang tên mới; giá trị tự nhập (thay cho "Khác") và giá trị lạ được giữ nguyên.
+    function normalizeBomDepartment(value) {
+      const text = String(value || "").replace(/\s+/g, " ").trim();
+      const map = {
+        "lắp ráp": "Lắp ráp / ráp",
+        "lắp ráp đóng gói": "Đóng gói / ráp",
+        "đóng gói bao bì": "Vật tư đóng gói"
+      };
+      return map[text.toLowerCase()] || text;
+    }
 
     // Dữ liệu BOM cũ (trước khi có cột Bộ phận) sẽ được chèn thêm ô rỗng ở đúng vị trí (index 7) khi tải.
     function ensureBomDepartmentCells() {
@@ -11044,15 +11165,9 @@
     }
 
     function renderBomDepartmentSelect(currentValue) {
-      const current = String(currentValue || "").replace(/\s+/g, " ").trim();
-      const options = ["", ...BOM_DEPARTMENT_OPTIONS]
-        .map((option) => {
-          const label = option || "-- Chọn --";
-          const selected = option.toLowerCase() === current.toLowerCase() ? " selected" : "";
-          return `<option value="${escapeAccountHtml(option)}"${selected}>${escapeAccountHtml(label)}</option>`;
-        })
-        .join("");
-      return `<select class="bom-inline-select" data-bom-target="department">${options}</select>`;
+      // Ô nhập có gợi ý: chọn 1 trong các bộ phận chuẩn hoặc gõ tự do (thay cho lựa chọn "Khác" cũ).
+      const current = normalizeBomDepartment(currentValue);
+      return `<input class="bom-inline-input" data-bom-target="department" list="bomDepartmentOptions" value="${escapeAccountHtml(current)}" placeholder="Bộ phận...">`;
     }
 
     function startBomRowEdit(row) {
@@ -11128,7 +11243,7 @@
       row.cells[4].textContent = normalizedQty || "-";
       row.cells[5].textContent = values[4] || "-";
       row.cells[6].textContent = normalizeDownstreamUom(values[5] || "-");
-      row.cells[7].textContent = values[6] || "";
+      row.cells[7].textContent = normalizeBomDepartment(values[6]);
       row.cells[7].dataset.bomDepartment = "true";
       row.cells[8].textContent = normalizeSupplier(values[7]) || "-";
       row.cells[9].innerHTML = renderStatusBadge(values[8] || "Other");
@@ -11238,8 +11353,8 @@
         <td>${normalizedQty || "-"}</td>
         <td>${values[4] || "-"}</td>
         <td>${normalizeDownstreamUom(values[5] || "-")}</td>
-        <td data-bom-department="true">${escapeAccountHtml(values[6] || "")}</td>
-        <td>${values[7] || "-"}</td>
+        <td data-bom-department="true">${escapeAccountHtml(normalizeBomDepartment(values[6]))}</td>
+        <td>${normalizeSupplier(values[7]) || "-"}</td>
         <td>${renderStatusBadge(status)}</td>
         <td><div class="row-actions"><button class="mini-action primary" data-bom-edit-row>Sửa</button><button class="mini-action danger" data-bom-delete-row>Xóa</button></div></td>
       `;
@@ -15829,6 +15944,7 @@
         if (payload.activeWorkOrderNo) activeWorkOrderNo = payload.activeWorkOrderNo;
         normalizeSheet1AndSheet2UomDisplays();
         normalizeSheet1AndSheet2SupplierDisplays();
+        normalizeBomDepartmentDisplays();
         repairSheet1VietnameseText();
         cachedAppDataPayload = { ...payload };
         persistAppDataLocally(cachedAppDataPayload);
@@ -16129,6 +16245,7 @@
   </script>
 </body>
 </html>
+
 
 
 
