@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260711072550"></script>
-  <script src="preview-images-data.js?v=20260711072550"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260712232539"></script>
+  <script src="preview-images-data.js?v=20260712232539"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -1870,6 +1870,11 @@
       display: block;
     }
 
+    .production-hardware-child-row .preview-box {
+      width: 56px;
+      height: 56px;
+    }
+
     .item-name {
       color: #ffffff;
       font-size: 13px;
@@ -2748,7 +2753,7 @@
           <button class="mini-action" type="button" data-hardware-bulk-clear>Bỏ chọn<span>Clear</span></button>
         </div>
         <div class="table-wrap">
-          <table data-hardware-table data-status-column="9" data-uom-options="EA,SET,PAIRS,mm" data-supplier-options="FW,Omexey,Acufit,Maddog,Other" data-status-options="Đã duyệt,Mẫu,Lỗi,Phiên bản cũ,Other" data-filter-columns='[{"label":"Mã FW","columns":[3]},{"label":"Mã PP","columns":[4]},{"label":"Vật liệu","columns":[6]},{"label":"Nhà cung cấp","columns":[8]},{"label":"Trạng thái","columns":[9]}]'>
+          <table data-hardware-table data-status-column="9" data-uom-options="EA,SET,PAIRS,mm" data-supplier-options="FW,Mad Dogg" data-status-options="Đã duyệt,Mẫu,Lỗi,Phiên bản cũ,Other" data-filter-columns='[{"label":"Mã FW","columns":[3]},{"label":"Mã PP","columns":[4]},{"label":"Vật liệu","columns":[6]},{"label":"Nhà cung cấp","columns":[8]},{"label":"Trạng thái","columns":[9]}]'>
             <thead>
               <tr>
                 <th>Hình ảnh<span>Preview</span></th>
@@ -3305,13 +3310,15 @@
     </main>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <div class="save-status" id="saveStatus" data-state="saved" role="status" aria-live="polite">Đã lưu trên máy</div>
+  <div class="save-status" id="saveStatus" data-state="saved" role="status" aria-live="polite">Đã lưu ✓</div>
   <datalist id="bomHardwareNames"></datalist>
   <datalist id="bomHardwareFw"></datalist>
   <datalist id="bomHardwarePp"></datalist>
   <datalist id="bomEligibleHardwareNames"></datalist>
   <datalist id="bomEligibleHardwareFw"></datalist>
   <datalist id="bomEligibleHardwarePp"></datalist>
+  <datalist id="productionChildHardwareNames"></datalist>
+  <datalist id="productionChildHardwarePp"></datalist>
   <datalist id="sheet1ProductCodeFilterList"></datalist>
   <datalist id="sheet1ProductNameFilterList"></datalist>
   <datalist id="sheet1ProductStatusFilterList"></datalist>
@@ -3830,6 +3837,8 @@
     const ERP_LANGUAGE_STORAGE_KEY = "firstwood_erp_language_v1";
     const ERP_SUPABASE_STATE_ID = "main";
     const ERP_SUPABASE_SYNC_INTERVAL = 10000;
+    // Gộp nhiều lần sửa liên tiếp thành một lần tải lên (chờ ngừng gõ ~0.8s) để tránh đẩy cả cục dữ liệu mỗi lần.
+    const ERP_SUPABASE_SAVE_DEBOUNCE = 800;
     const ERP_REQUIRE_LOGIN = Boolean(window.FIRSTWOOD_REQUIRE_LOGIN);
     let currentUiLanguage = localStorage.getItem(ERP_LANGUAGE_STORAGE_KEY) === "en" ? "en" : "vi";
     let currentUserProfile = null;
@@ -3842,6 +3851,8 @@
     let loginFormMode = "login";
     let isAdminMode = false;
     let lastSupabaseUpdatedAt = "";
+    // Chữ ký nội dung đã tải lên gần nhất (bỏ qua savedAt/auditHistory) để khỏi tải lại khi dữ liệu không đổi.
+    let lastUploadedContentSignature = "";
     let supabaseSaveTimer = null;
     let pendingSupabasePayload = null;
     let supabaseSaveInFlight = false;
@@ -5139,7 +5150,7 @@
         const visible = controls.every((control) => {
           const value = control.value.trim();
           if (isAllValue(value)) return true;
-          return rowText.includes(value.toLowerCase());
+          return matchesMultiFilter(rowText, value);
         });
       row.classList.toggle("is-hidden", !visible);
       if (visible) visibleRows += 1;
@@ -5300,6 +5311,27 @@
         const cell = row.cells[6];
         if (cell) cell.textContent = normalizeDownstreamUom(cell.innerText);
       });
+    }
+
+    // Chuẩn hóa nhà cung cấp (áp dụng NGOÀI sheet Nhập khẩu): "FW" giữ nguyên, mọi nhà cung cấp khác -> "Mad Dogg".
+    // Ô trống hoặc "-" được giữ nguyên (không coi là nhà cung cấp).
+    function normalizeSupplier(value) {
+      const text = String(value ?? "").replace(/\s+/g, " ").trim();
+      if (!text || text === "-") return text;
+      if (text.toLowerCase() === "fw") return "FW";
+      return "Mad Dogg";
+    }
+
+    // Áp quy tắc nhà cung cấp cho bảng Mã phần cứng (Sheet 1) và BOM (Sheet 2). KHÔNG đụng tới sheet Nhập khẩu.
+    function normalizeSheet1AndSheet2SupplierDisplays() {
+      const applyToCell = (cell) => {
+        if (!cell || cell.querySelector("select") || cell.querySelector("input")) return;
+        const current = cell.innerText.replace(/\s+/g, " ").trim();
+        const normalized = normalizeSupplier(current);
+        if (normalized !== current) cell.textContent = normalized;
+      };
+      document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => applyToCell(row.cells[8]));
+      document.querySelectorAll("[data-bom-body] tr:not([data-bom-entry-row])").forEach((row) => applyToCell(row.cells[8]));
     }
 
     function ensureProductPartNumberCells() {
@@ -5519,14 +5551,25 @@
       }) || null;
     }
 
+    // Nạp gợi ý (autocomplete) cho dòng con: chỉ phần cứng loại "Mã thay thế" hoặc "Mã chi tiết" mới hợp lệ.
+    function refreshProductionChildHardwareSuggestions() {
+      const eligible = getHardwareCatalog().filter((item) => {
+        const type = normalizeHardwareType(item.type);
+        return type === "Mã thay thế" || type === "Mã chi tiết";
+      });
+      fillDatalist("productionChildHardwareNames", eligible.map((item) => item.name));
+      fillDatalist("productionChildHardwarePp", eligible.map((item) => item.pp));
+    }
+
     function normalizeHardwareType(value) {
       const text = String(value || "").replace(/\s+/g, " ").trim();
       const plain = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      if (plain === "ma don") return "Mã đơn";
+      // Nhận cả nhãn cũ "Mã đơn" lẫn nhãn mới "Mã chính" để dữ liệu cũ tự hiển thị thành "Mã chính".
+      if (plain === "ma don" || plain === "ma chinh") return "Mã chính";
       if (plain === "ma bo") return "Mã bộ";
       if (plain === "ma thay the") return "Mã thay thế";
       if (plain === "ma chi tiet" || plain === "chi tiet") return "Mã chi tiết";
-      return "Mã đơn";
+      return "Mã chính";
     }
 
     function getHardwareType(row) {
@@ -5543,7 +5586,7 @@
       const select = document.createElement("select");
       select.className = "control";
       select.dataset.hardwareTypeSelect = "true";
-      ["Mã đơn", "Mã bộ", "Mã thay thế", "Mã chi tiết"].forEach((option) => {
+      ["Mã chính", "Mã bộ", "Mã thay thế", "Mã chi tiết"].forEach((option) => {
         const item = document.createElement("option");
         item.value = option;
         item.textContent = option || "";
@@ -5575,7 +5618,7 @@
       const cell = document.createElement("td");
       cell.dataset.editable = "hardwareType";
       cell.dataset.hardwareTypeCell = "true";
-      cell.innerHTML = renderHardwareTypeCell("Mã đơn");
+      cell.innerHTML = renderHardwareTypeCell("Mã chính");
       const usageCell = row.querySelector("[data-hardware-usage-cell]");
       row.insertBefore(cell, usageCell || row.cells[10] || row.querySelector(".row-actions")?.closest("td"));
     }
@@ -6039,9 +6082,10 @@
       let updatedRows = 0;
 
       document.querySelectorAll("[data-bom-body] tr:not([data-bom-entry-row])").forEach((bomRow) => {
-        const rowName = normalizeHardwareKey(bomRow.cells[1]?.innerText);
-        const rowFw = normalizeHardwareKey(bomRow.cells[2]?.innerText);
-        const rowPp = normalizeHardwareKey(bomRow.cells[3]?.innerText);
+        // Dùng textContent (không ép trình duyệt tính lại layout như innerText) để tránh giật khi quét toàn bộ dòng BOM.
+        const rowName = normalizeHardwareKey(bomRow.cells[1]?.textContent);
+        const rowFw = normalizeHardwareKey(bomRow.cells[2]?.textContent);
+        const rowPp = normalizeHardwareKey(bomRow.cells[3]?.textContent);
         const matchedByPp = oldPp && rowPp === oldPp;
         const matchedByFw = oldFw && rowFw === oldFw;
         const matchedByNameOnly = !oldPp && !oldFw && oldName && rowName === oldName;
@@ -6185,7 +6229,7 @@
         const hardwareTypeSelect = hardwareTypeCell?.querySelector("[data-hardware-type-select]");
         if (uomCell && uomSelect) uomCell.textContent = normalizeDownstreamUom(uomSelect.value);
         if (isHardware && uomCell && !uomSelect) uomCell.textContent = normalizeDownstreamUom(uomCell.innerText);
-        if (supplierCell && supplierSelect) supplierCell.textContent = supplierSelect.value;
+        if (supplierCell && supplierSelect) supplierCell.textContent = normalizeSupplier(supplierSelect.value);
         if (isHardware && hardwareTypeCell) {
           const nextType = normalizeHardwareType(hardwareTypeSelect?.value || hardwareTypeCell.innerText);
           hardwareTypeCell.dataset.hardwareTypeCell = "true";
@@ -6365,7 +6409,7 @@
       const values = rows
         .filter((row) => !row.matches("[data-bom-entry-row]"))
         .filter((row) => !activeBom || row.dataset.bomParent === activeBom)
-        .filter((row) => activeCriteria.every((item) => getCriterionText(row, item.filterColumn).toLowerCase().includes(item.value.toLowerCase())))
+        .filter((row) => activeCriteria.every((item) => matchesMultiFilter(getCriterionText(row, item.filterColumn), item.value)))
         .map((row) => getCriterionText(row, filterColumn))
         .filter(Boolean);
       return [...new Set(values)].sort((a, b) => a.localeCompare(b));
@@ -6375,7 +6419,8 @@
       if (select?.tagName === "INPUT") {
         select.placeholder = placeholder || "Gõ một phần để lọc";
         const listId = select.getAttribute("list");
-        if (listId) fillDatalist(listId, options.map((option) => String(option.value ?? option)));
+        // Ô giá trị lọc cũng hỗ trợ nhiều mã: gợi ý mã kế tiếp sau dấu phẩy.
+        if (listId) fillMultiDatalist(listId, select, options.map((option) => String(option.value ?? option)));
         return;
       }
       select.innerHTML = "";
@@ -6422,11 +6467,11 @@
     }
 
     function applyModalFilter() {
-      const search = document.getElementById("modalSearch").value.trim().toLowerCase();
+      const search = document.getElementById("modalSearch").value.trim();
       const filterColumns = getFilterColumns(filterTable);
       const criteria = Array.from(document.querySelectorAll(".criteria-row")).map((row) => ({
         filterColumn: filterColumns.find((column) => column.key === row.querySelector(".filter-field").value),
-        value: row.querySelector(".filter-value").value.trim().toLowerCase()
+        value: row.querySelector(".filter-value").value.trim()
       })).filter((item) => item.filterColumn && item.value !== "");
       const rows = Array.from(filterTable.tBodies[0]?.rows || []);
       let visibleRows = 0;
@@ -6437,13 +6482,10 @@
           return;
         }
         const rowText = getTableSearchText(row);
-        const searchMatch = !search || rowText.includes(search);
+        const searchMatch = matchesMultiFilter(rowText, search);
         const activeBom = filterTable.querySelector("[data-bom-body]") ? document.querySelector(".bom-product-card.active")?.dataset.bomCard : "";
         const bomMatch = !activeBom || row.dataset.bomParent === activeBom;
-        const criteriaMatch = criteria.every((item) => {
-          const cellText = getCriterionText(row, item.filterColumn).toLowerCase();
-          return cellText.includes(item.value);
-        });
+        const criteriaMatch = criteria.every((item) => matchesMultiFilter(getCriterionText(row, item.filterColumn), item.value));
         const visible = searchMatch && criteriaMatch && bomMatch;
         row.classList.toggle("is-hidden", !visible);
         if (visible) visibleRows += 1;
@@ -7258,9 +7300,9 @@
         <td data-editable="text"></td>
         <td data-editable="text"></td>
         <td data-editable="uom">${normalizeDownstreamUom(item?.uom || "")}</td>
-        <td data-editable="supplier">${item?.supplier || ""}</td>
+        <td data-editable="supplier">${normalizeSupplier(item?.supplier || "")}</td>
         <td data-editable="status"><span class="badge green">Đã duyệt</span></td>
-        <td data-editable="hardwareType" data-hardware-type-cell>${renderHardwareTypeCell("Mã đơn")}</td>
+        <td data-editable="hardwareType" data-hardware-type-cell>${renderHardwareTypeCell("Mã chính")}</td>
         <td data-editable="text">Tạo từ Sheet 3 - chờ khai báo</td>
         <td>
           <div class="row-actions">
@@ -7311,15 +7353,33 @@
       });
     }
 
+    // ===== Bộ lọc nhiều mã dùng chung cho TOÀN BỘ ô lọc trong app =====
+    // Người dùng gõ nhiều mã cách nhau bằng dấu phẩy; một dòng khớp nếu trùng BẤT KỲ mã nào.
+    // Một mã (không có dấu phẩy) vẫn chạy y như cũ nên hoàn toàn tương thích ngược.
+    function getFilterTokens(filterValue) {
+      return String(filterValue || "")
+        .split(",")
+        .map((token) => token.replace(/\s+/g, " ").trim().toLowerCase())
+        .filter(Boolean);
+    }
+
+    function matchesMultiFilter(value, filterValue) {
+      const tokens = getFilterTokens(filterValue);
+      if (!tokens.length) return true;
+      const text = String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+      return tokens.some((token) => text.includes(token));
+    }
+
     // Datalist cho ô lọc nhiều mã: gợi ý mã kế tiếp sau dấu phẩy (giữ phần đã nhập trước đó làm tiền tố).
-    function fillSheet1MultiDatalist(listId, inputId, values) {
+    // inputRef nhận id (chuỗi) hoặc chính phần tử input.
+    function fillMultiDatalist(listId, inputRef, values) {
       const list = document.getElementById(listId);
       if (!list) return;
-      const input = document.getElementById(inputId);
+      const input = typeof inputRef === "string" ? document.getElementById(inputRef) : inputRef;
       const raw = input ? input.value : "";
       const lastComma = raw.lastIndexOf(",");
       const prefix = lastComma >= 0 ? `${raw.slice(0, lastComma + 1)} ` : "";
-      const chosen = new Set(getSheet1MultiTokens(raw));
+      const chosen = new Set(getFilterTokens(raw));
       const options = [...new Set(values.filter(Boolean).map((value) => String(value)))]
         .filter((value) => !chosen.has(value.toLowerCase()))
         .map((value) => `${prefix}${value}`);
@@ -7332,6 +7392,11 @@
         option.value = value;
         list.appendChild(option);
       });
+    }
+
+    // Giữ tên cũ để không phá vỡ các lời gọi sẵn có (Sheet 1 phần cứng FW/PP).
+    function fillSheet1MultiDatalist(listId, inputId, values) {
+      fillMultiDatalist(listId, inputId, values);
     }
 
     function refreshBomHardwareSuggestions() {
@@ -7363,7 +7428,7 @@
           hidden: settings.hidden === true
         };
       }).filter((item) => {
-        if (!item.key || item.hidden || (item.type !== "Mã đơn" && item.type !== "Mã bộ")) return false;
+        if (!item.key || item.hidden || (item.type !== "Mã chính" && item.type !== "Mã bộ")) return false;
         if (!applyFilters) return true;
         if (!matchesSheet1Filter(item.name, sheet1ProductionHardwareFilters.name)) return false;
         if (!matchesSheet1Filter(item.pp, sheet1ProductionHardwareFilters.pp)) return false;
@@ -7379,6 +7444,7 @@
       const table = document.querySelector("[data-production-hardware-table]");
       const tbody = table?.tBodies[0];
       if (!tbody) return;
+      refreshProductionChildHardwareSuggestions();
       const panel = table.closest("[data-catalog-panel]");
       const shouldUpdateCount = panel && !panel.classList.contains("is-hidden");
       const rows = getProductionHardwareSourceRows();
@@ -7391,7 +7457,7 @@
       tbody.innerHTML = "";
 
       if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--muted); font-size:12px; font-weight:800;">Không có mã phần cứng loại Mã đơn hoặc Mã bộ.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--muted); font-size:12px; font-weight:800;">Không có mã phần cứng loại Mã chính hoặc Mã bộ.</td></tr>`;
         if (shouldUpdateCount) updateCountForTable(table, 0);
         return;
       }
@@ -7438,11 +7504,11 @@
       if (childType) tr.dataset.productionChildType = childType;
       if (rowColor) tr.style.background = rowColor;
       tr.innerHTML = `
-        <td></td>
+        <td>${renderHardwarePreviewBox(child.pp)}</td>
         <td style="padding-left: 34px; border-left: 3px solid var(--line); color: var(--text-blue);">
-          <span class="bom-inline-edit" contenteditable="true" data-production-child-field="name">${escapeProductionHardwareText(child.name || "")}</span>
+          <input class="bom-inline-input" data-production-child-field="name" list="productionChildHardwareNames" value="${escapeProductionHardwareText(child.name || "")}" placeholder="Tên phần cứng…">
         </td>
-        <td><span class="bom-inline-edit" contenteditable="true" data-production-child-field="pp">${escapeProductionHardwareText(child.pp || "")}</span></td>
+        <td><input class="bom-inline-input" data-production-child-field="pp" list="productionChildHardwarePp" value="${escapeProductionHardwareText(child.pp || "")}" placeholder="Mã PP…"></td>
         <td><span class="bom-inline-edit" contenteditable="true" data-production-child-field="qty">${escapeProductionHardwareText(child.qty || "")}</span></td>
         <td><span class="bom-inline-edit" contenteditable="true" data-production-child-field="uom">${escapeProductionHardwareText(child.uom || "")}</span></td>
         <td><span class="bom-inline-edit" contenteditable="true" data-production-child-field="priority">${escapeProductionHardwareText(child.priority || "")}</span></td>
@@ -7457,7 +7523,12 @@
     }
 
     function readProductionHardwareChildRow(row) {
-      const read = (field) => row.querySelector(`[data-production-child-field="${field}"]`)?.innerText.replace(/\s+/g, " ").trim() || "";
+      const read = (field) => {
+        const el = row.querySelector(`[data-production-child-field="${field}"]`);
+        if (!el) return "";
+        const raw = el.tagName === "INPUT" ? el.value : el.innerText;
+        return String(raw || "").replace(/\s+/g, " ").trim();
+      };
       return {
         name: read("name"),
         pp: read("pp"),
@@ -7475,13 +7546,16 @@
       const match = findProductionChildHardwareMatch(child);
       row.dataset.productionChildType = "";
       row.style.background = "";
+      if (row.cells[0]) row.cells[0].innerHTML = renderHardwarePreviewBox(match?.pp || child.pp || "");
       if (!match) return;
       const type = normalizeHardwareType(match.type);
       row.dataset.productionChildType = type;
       row.style.background = getProductionChildTypeColor(type);
       const setField = (name, value) => {
         const target = row.querySelector(`[data-production-child-field="${name}"]`);
-        if (target) target.textContent = value || "";
+        if (!target) return;
+        if (target.tagName === "INPUT") target.value = value || "";
+        else target.textContent = value || "";
       };
       setField("name", match.name || "");
       setField("pp", match.pp || "");
@@ -7557,7 +7631,8 @@
 
     function clearProductionHardwareChildEntry(row) {
       row?.querySelectorAll("[data-production-child-field]").forEach((field) => {
-        field.textContent = "";
+        if (field.tagName === "INPUT") field.value = "";
+        else field.textContent = "";
       });
       showToast("Đã xóa dòng nhập trống.");
     }
@@ -8334,15 +8409,11 @@
     }
 
     function matchesImportSupplier(supplier, filterValue) {
-      const supplierText = normalizeImportFilterText(supplier);
-      const filterText = normalizeImportFilterText(filterValue);
-      return !filterText || supplierText.includes(filterText);
+      return matchesMultiFilter(supplier, filterValue);
     }
 
     function matchesImportText(value, filterValue) {
-      const text = normalizeImportFilterText(value);
-      const filterText = normalizeImportFilterText(filterValue);
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function syncImportFilterControls() {
@@ -8416,12 +8487,12 @@
       const suppliers = [...new Set(importShipments.map(s => s.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b));
       const statuses = getOptionsFor('status');
 
-      fillDatalist("importInvoiceFilterList", invoices);
-      fillDatalist("importNameFilterList", names);
-      fillDatalist("importFwFilterList", fws);
-      fillDatalist("importPpFilterList", pps);
-      fillDatalist("importSenderFilterList", suppliers);
-      fillDatalist("importStatusFilterList", statuses);
+      fillMultiDatalist("importInvoiceFilterList", "importFilterInvoice", invoices);
+      fillMultiDatalist("importNameFilterList", "importFilterName", names);
+      fillMultiDatalist("importFwFilterList", "importFilterFw", fws);
+      fillMultiDatalist("importPpFilterList", "importFilterPp", pps);
+      fillMultiDatalist("importSenderFilterList", "importFilterSupplier", suppliers);
+      fillMultiDatalist("importStatusFilterList", "importFilterStatus", statuses);
     }
 
     function updateSelectOptions(elementId, values, currentValue, placeholder) {
@@ -8566,25 +8637,17 @@
       return Array.from(table?.tBodies[0]?.rows || []);
     }
 
+    // Mọi ô lọc Sheet 1 dùng chung bộ lọc nhiều mã (matchesMultiFilter).
     function matchesSheet1Filter(value, filterValue) {
-      const text = String(value || "").trim().toLowerCase();
-      const filterText = String(filterValue || "").trim().toLowerCase();
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
-    // Lọc nhiều mã cùng lúc: nhập các mã cách nhau bằng dấu phẩy, khớp nếu trùng BẤT KỲ mã nào.
     function getSheet1MultiTokens(filterValue) {
-      return String(filterValue || "")
-        .split(",")
-        .map((token) => token.replace(/\s+/g, " ").trim().toLowerCase())
-        .filter(Boolean);
+      return getFilterTokens(filterValue);
     }
 
     function matchesSheet1FilterMulti(value, filterValue) {
-      const tokens = getSheet1MultiTokens(filterValue);
-      if (!tokens.length) return true;
-      const text = String(value || "").trim().toLowerCase();
-      return tokens.some((token) => text.includes(token));
+      return matchesMultiFilter(value, filterValue);
     }
 
     function updateSheet1FilterOptions() {
@@ -8665,17 +8728,17 @@
         .filter(Boolean)
       )].sort((a, b) => a.localeCompare(b));
 
-      fillDatalist("sheet1ProductCodeFilterList", pCodes);
-      fillDatalist("sheet1ProductNameFilterList", pNames);
-      fillDatalist("sheet1ProductStatusFilterList", pStatuses);
+      fillMultiDatalist("sheet1ProductCodeFilterList", "sheet1ProductFilterCode", pCodes);
+      fillMultiDatalist("sheet1ProductNameFilterList", "sheet1ProductFilterName", pNames);
+      fillMultiDatalist("sheet1ProductStatusFilterList", "sheet1ProductFilterStatus", pStatuses);
 
-      fillDatalist("sheet1HardwareNameFilterList", hNames);
-      fillSheet1MultiDatalist("sheet1HardwareFwFilterList", "sheet1HardwareFilterFw", hFws);
-      fillSheet1MultiDatalist("sheet1HardwarePpFilterList", "sheet1HardwareFilterPp", hPps);
-      fillDatalist("sheet1HardwareSupplierFilterList", hSuppliers);
-      fillDatalist("sheet1HardwareStatusFilterList", hStatuses);
-      fillDatalist("sheet1ProductionHardwareNameFilterList", phNames);
-      fillDatalist("sheet1ProductionHardwarePpFilterList", phPps);
+      fillMultiDatalist("sheet1HardwareNameFilterList", "sheet1HardwareFilterName", hNames);
+      fillMultiDatalist("sheet1HardwareFwFilterList", "sheet1HardwareFilterFw", hFws);
+      fillMultiDatalist("sheet1HardwarePpFilterList", "sheet1HardwareFilterPp", hPps);
+      fillMultiDatalist("sheet1HardwareSupplierFilterList", "sheet1HardwareFilterSupplier", hSuppliers);
+      fillMultiDatalist("sheet1HardwareStatusFilterList", "sheet1HardwareFilterStatus", hStatuses);
+      fillMultiDatalist("sheet1ProductionHardwareNameFilterList", "sheet1ProductionHardwareFilterName", phNames);
+      fillMultiDatalist("sheet1ProductionHardwarePpFilterList", "sheet1ProductionHardwareFilterPp", phPps);
     }
 
     function applySheet1Filters() {
@@ -8762,9 +8825,7 @@
     }
 
     function matchesSheet2Filter(value, filterValue) {
-      const text = String(value || "").trim().toLowerCase();
-      const filterText = String(filterValue || "").trim().toLowerCase();
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function getSheet2RowText(row, columnIndex) {
@@ -8859,13 +8920,13 @@
       const suppliers = getOptions('supplier');
       const statuses = getOptions('status');
 
-      fillDatalist("sheet2ProductCodeFilterList", productCodes);
-      fillDatalist("sheet2NameFilterList", names);
-      fillDatalist("sheet2FwFilterList", fws);
-      fillDatalist("sheet2PpFilterList", pps);
-      fillDatalist("sheet2MaterialFilterList", materials);
-      fillDatalist("sheet2SupplierFilterList", suppliers);
-      fillDatalist("sheet2StatusFilterList", statuses);
+      fillMultiDatalist("sheet2ProductCodeFilterList", "sheet2FilterProductCode", productCodes);
+      fillMultiDatalist("sheet2NameFilterList", "sheet2FilterName", names);
+      fillMultiDatalist("sheet2FwFilterList", "sheet2FilterFw", fws);
+      fillMultiDatalist("sheet2PpFilterList", "sheet2FilterPp", pps);
+      fillMultiDatalist("sheet2MaterialFilterList", "sheet2FilterMaterial", materials);
+      fillMultiDatalist("sheet2SupplierFilterList", "sheet2FilterSupplier", suppliers);
+      fillMultiDatalist("sheet2StatusFilterList", "sheet2FilterStatus", statuses);
     }
 
     function applySheet2Filters() {
@@ -8922,9 +8983,7 @@
     let sheet5WorkOrderFilters = { woNo: "", productCode: "", productName: "", orderNo: "" };
 
     function matchesSheet5Filter(value, filterValue) {
-      const text = String(value || "").trim().toLowerCase();
-      const filterText = String(filterValue || "").trim().toLowerCase();
-      return !filterText || text.includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function getSheet5OrderLineRows() {
@@ -8954,15 +9013,15 @@
 
     function updateSheet5FilterOptions() {
       const orderRows = getSheet5OrderLineRows();
-      fillDatalist("sheet5OrderFilterOrderNoList", orderRows.map(row => row.order.orderNo));
-      fillDatalist("sheet5OrderFilterProductCodeList", orderRows.map(row => row.item.productCode));
-      fillDatalist("sheet5OrderFilterProductNameList", orderRows.map(row => row.item.productName));
+      fillMultiDatalist("sheet5OrderFilterOrderNoList", "sheet5OrderFilterOrderNo", orderRows.map(row => row.order.orderNo));
+      fillMultiDatalist("sheet5OrderFilterProductCodeList", "sheet5OrderFilterProductCode", orderRows.map(row => row.item.productCode));
+      fillMultiDatalist("sheet5OrderFilterProductNameList", "sheet5OrderFilterProductName", orderRows.map(row => row.item.productName));
 
       const workOrderRows = productionAllocations.filter(item => !item.isHeader);
-      fillDatalist("sheet5WoFilterWoNoList", workOrderRows.map(item => item.woNo));
-      fillDatalist("sheet5WoFilterProductCodeList", workOrderRows.map(item => item.productCode));
-      fillDatalist("sheet5WoFilterProductNameList", workOrderRows.map(item => item.productName));
-      fillDatalist("sheet5WoFilterOrderNoList", workOrderRows.flatMap(item => getAllocationLines(item).map(line => line.orderNo)));
+      fillMultiDatalist("sheet5WoFilterWoNoList", "sheet5WoFilterWoNo", workOrderRows.map(item => item.woNo));
+      fillMultiDatalist("sheet5WoFilterProductCodeList", "sheet5WoFilterProductCode", workOrderRows.map(item => item.productCode));
+      fillMultiDatalist("sheet5WoFilterProductNameList", "sheet5WoFilterProductName", workOrderRows.map(item => item.productName));
+      fillMultiDatalist("sheet5WoFilterOrderNoList", "sheet5WoFilterOrderNo", workOrderRows.flatMap(item => getAllocationLines(item).map(line => line.orderNo)));
     }
 
     let sheet5FilterOptionsTimer = null;
@@ -10048,9 +10107,7 @@
     }
 
     function matchesWarehouseFilter(value, filterValue) {
-      const filterText = normalizeWarehouseFilterText(filterValue);
-      if (!filterText) return true;
-      return normalizeWarehouseFilterText(value).includes(filterText);
+      return matchesMultiFilter(value, filterValue);
     }
 
     function getActiveWarehouseTab() {
@@ -10106,20 +10163,20 @@
 
     function updateWarehouseFilterOptions() {
       const stockRows = Array.from(document.querySelectorAll("[data-warehouse-stock-table] tbody tr[data-warehouse-filter-row]"));
-      fillDatalist("warehouseStockFwFilterList", stockRows.map(row => row.dataset.filterFw));
-      fillDatalist("warehouseStockPpFilterList", stockRows.map(row => row.dataset.filterPp));
-      fillDatalist("warehouseStockNameFilterList", stockRows.map(row => row.dataset.filterName));
+      fillMultiDatalist("warehouseStockFwFilterList", "warehouseStockFilterFw", stockRows.map(row => row.dataset.filterFw));
+      fillMultiDatalist("warehouseStockPpFilterList", "warehouseStockFilterPp", stockRows.map(row => row.dataset.filterPp));
+      fillMultiDatalist("warehouseStockNameFilterList", "warehouseStockFilterName", stockRows.map(row => row.dataset.filterName));
 
       const pendingRows = Array.from(document.querySelectorAll('[data-warehouse-panel="cho-san-xuat"] tbody tr[data-warehouse-filter-row]'));
-      fillDatalist("warehousePendingFwFilterList", pendingRows.map(row => row.dataset.filterFw));
-      fillDatalist("warehousePendingPpFilterList", pendingRows.map(row => row.dataset.filterPp));
-      fillDatalist("warehousePendingNameFilterList", pendingRows.map(row => row.dataset.filterName));
-      fillDatalist("warehousePendingWoFilterList", pendingRows.map(row => row.dataset.filterWo));
+      fillMultiDatalist("warehousePendingFwFilterList", "warehousePendingFilterFw", pendingRows.map(row => row.dataset.filterFw));
+      fillMultiDatalist("warehousePendingPpFilterList", "warehousePendingFilterPp", pendingRows.map(row => row.dataset.filterPp));
+      fillMultiDatalist("warehousePendingNameFilterList", "warehousePendingFilterName", pendingRows.map(row => row.dataset.filterName));
+      fillMultiDatalist("warehousePendingWoFilterList", "warehousePendingFilterWo", pendingRows.map(row => row.dataset.filterWo));
 
       const defectiveRows = Array.from(document.querySelectorAll('[data-warehouse-panel="phan-cung-loi"] tbody tr[data-warehouse-filter-row]'));
-      fillDatalist("warehouseDefectiveFwFilterList", defectiveRows.map(row => row.dataset.filterFw));
-      fillDatalist("warehouseDefectivePpFilterList", defectiveRows.map(row => row.dataset.filterPp));
-      fillDatalist("warehouseDefectiveNameFilterList", defectiveRows.map(row => row.dataset.filterName));
+      fillMultiDatalist("warehouseDefectiveFwFilterList", "warehouseDefectiveFilterFw", defectiveRows.map(row => row.dataset.filterFw));
+      fillMultiDatalist("warehouseDefectivePpFilterList", "warehouseDefectiveFilterPp", defectiveRows.map(row => row.dataset.filterPp));
+      fillMultiDatalist("warehouseDefectiveNameFilterList", "warehouseDefectiveFilterName", defectiveRows.map(row => row.dataset.filterName));
     }
 
     function applyWarehouseFilters() {
@@ -10171,7 +10228,13 @@
     function scheduleWarehouseStockRefresh(delay = 450) {
       clearTimeout(warehouseStockRefreshTimer);
       warehouseStockRefreshTimer = setTimeout(() => {
-        const runRefresh = () => refreshWarehouseStockBalances();
+        const runRefresh = () => {
+          // Tính lại tồn kho rất nặng (dựng kế hoạch giữ vật tư qua toàn bộ BOM). Bỏ qua khi panel Kho vật tư đang ẩn
+          // (anh đang sửa ở sheet khác) — khi mở panel Kho, showSheet sẽ tự gọi lại để tính mới nhất.
+          const warehouseSheet = document.getElementById("sheet-warehouse");
+          if (warehouseSheet && warehouseSheet.classList.contains("is-hidden")) return;
+          refreshWarehouseStockBalances();
+        };
         if ("requestIdleCallback" in window) {
           window.requestIdleCallback(runRefresh, { timeout: 1600 });
         } else {
@@ -10245,7 +10308,12 @@
     function scheduleProductionHardwareTableRefresh(delay = 180) {
       clearTimeout(productionHardwareTableRefreshTimer);
       productionHardwareTableRefreshTimer = setTimeout(() => {
-        const runRefresh = () => renderProductionHardwareTable();
+        const runRefresh = () => {
+          // Bỏ qua dựng lại bảng khi panel "Mã Phần Cứng Sản Xuất" đang ẩn; chuyển sang tab đó sẽ tự dựng lại.
+          const productionPanel = document.querySelector('[data-catalog-panel="production-hardware"]');
+          if (productionPanel && productionPanel.classList.contains("is-hidden")) return;
+          renderProductionHardwareTable();
+        };
         if ("requestIdleCallback" in window) {
           window.requestIdleCallback(runRefresh, { timeout: 1200 });
         } else if ("requestAnimationFrame" in window) {
@@ -10936,7 +11004,7 @@
       row.querySelector('[data-bom-autofill="pp"]').value = match.pp;
       row.querySelector('[data-bom-target="material"]').textContent = match.material;
       row.querySelector('[data-bom-target="uom"]').textContent = normalizeDownstreamUom(match.uom);
-      row.querySelector('[data-bom-target="supplier"]').textContent = match.supplier;
+      row.querySelector('[data-bom-target="supplier"]').textContent = normalizeSupplier(match.supplier);
       row.querySelector('[data-bom-target="status"]').textContent = match.status;
       if (row.cells[0]) row.cells[0].innerHTML = renderHardwarePreviewBox(match.pp);
     }
@@ -11062,7 +11130,7 @@
       row.cells[6].textContent = normalizeDownstreamUom(values[5] || "-");
       row.cells[7].textContent = values[6] || "";
       row.cells[7].dataset.bomDepartment = "true";
-      row.cells[8].textContent = values[7] || "-";
+      row.cells[8].textContent = normalizeSupplier(values[7]) || "-";
       row.cells[9].innerHTML = renderStatusBadge(values[8] || "Other");
       row.classList.remove("editing-row");
       delete row.dataset.originalHtml;
@@ -12463,6 +12531,109 @@
       }
     }
 
+    async function exportProductionHardwareWorkbook() {
+      if (typeof XLSX === "undefined") {
+        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
+        return;
+      }
+      const parents = getProductionHardwareSourceRows();
+      if (!parents.length) {
+        showToast("Không có mã phần cứng sản xuất đang hiển thị để xuất.");
+        return;
+      }
+
+      const headers = [
+        "Hình ảnh / Preview",
+        "Loại / Type",
+        "Tên phần cứng / Item name",
+        "Mã phần cứng PP / PP code",
+        "Số lượng / Qty",
+        "Đơn vị / UOM",
+        "Ưu tiên / Priority"
+      ];
+      const COL_COUNT = headers.length;
+      const rows = [headers];
+      const imageAnchors = [];
+      const bannerRows = []; // dòng mã cha (nổi bật)
+      const dataRows = [];   // dòng mã con (có viền)
+      const wrapCells = [];
+      const rowHeights = { 0: 30 };
+
+      const addImage = (rowIndex, pp, fallbackName) => {
+        const url = getHardwarePreviewExcelUrl(pp);
+        if (url) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: url, name: pp || fallbackName || "Preview" });
+      };
+
+      parents.forEach((parent) => {
+        const parentIndex = rows.length;
+        rows.push([
+          "",
+          normalizeHardwareType(parent.type) || "Mã chính",
+          parent.name || "",
+          parent.pp || "",
+          parent.qty || "",
+          parent.uom || "",
+          parent.priority || ""
+        ]);
+        bannerRows.push(parentIndex);
+        wrapCells.push({ r: parentIndex, c: 2 });
+        rowHeights[parentIndex] = 76;
+        addImage(parentIndex, parent.pp, parent.name);
+
+        const children = Array.isArray(productionHardwareSettings[parent.key]?.children)
+          ? productionHardwareSettings[parent.key].children
+          : [];
+        children.forEach((child) => {
+          const childIndex = rows.length;
+          rows.push([
+            "",
+            child.type ? normalizeHardwareType(child.type) : "",
+            "    ↳ " + (child.name || ""),
+            child.pp || "",
+            child.qty || "",
+            child.uom || "",
+            child.priority || ""
+          ]);
+          dataRows.push(childIndex);
+          wrapCells.push({ r: childIndex, c: 2 });
+          rowHeights[childIndex] = 76;
+          addImage(childIndex, child.pp, child.name);
+        });
+      });
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const sheetName = "Ma phan cung san xuat";
+      worksheet["!cols"] = [
+        { wch: 18 }, { wch: 16 }, { wch: 42 }, { wch: 24 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
+      ];
+      worksheet["!rows"] = rows.map((_, rowIndex) => rowHeights[rowIndex] ? { hpt: rowHeights[rowIndex] } : {});
+      worksheet["!autofilter"] = { ref: `A1:${XLSX.utils.encode_col(COL_COUNT - 1)}${rows.length}` };
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      const imageAnchorsBySheet = new Map([[sheetName, imageAnchors]]);
+      const reportStylesBySheet = new Map([[sheetName, {
+        columns: COL_COUNT,
+        headerRow: 0,
+        bannerRows,
+        dataRows,
+        wrapCells
+      }]]);
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const filename = `firstwood-ma-phan-cung-san-xuat-${stamp}.xlsx`;
+      try {
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet, reportStylesBySheet);
+        showToast(hasEmbeddedImages
+          ? "Đã xuất Excel Mã Phần Cứng Sản Xuất kèm hình ảnh."
+          : "Đã xuất Excel Mã Phần Cứng Sản Xuất (chưa tìm thấy ảnh phù hợp để nhúng).");
+      } catch (error) {
+        console.warn("Không nhúng được ảnh vào Excel Mã Phần Cứng Sản Xuất:", error);
+        writeWorkbookXlsx(workbook, filename);
+        showToast("Đã xuất Excel Mã Phần Cứng Sản Xuất nhưng chưa nhúng được ảnh.");
+      }
+    }
+
     function exportCurrentTable() {
       if (getCurrentSection()?.id === "sheet-bom") {
         openSheet2ExportModal();
@@ -12475,6 +12646,10 @@
       const table = getCurrentTable();
       if (table?.matches("[data-hardware-table]")) {
         exportSheet2HardwareWorkbook(table);
+        return;
+      }
+      if (table?.matches("[data-production-hardware-table]")) {
+        exportProductionHardwareWorkbook();
         return;
       }
       const rows = Array.from(table.querySelectorAll("tr")).filter((row) => !row.classList.contains("is-hidden"));
@@ -12684,9 +12859,10 @@
     });
 
     document.querySelectorAll(".filter-value").forEach((valueSelect) => {
+      // Bắt đầu từ chính dòng hiện tại để cập nhật luôn gợi ý nhiều mã (sau dấu phẩy) của ô đang gõ.
       const refreshFollowingValues = () => {
         const rows = Array.from(document.querySelectorAll(".criteria-row"));
-        const startIndex = rows.indexOf(valueSelect.closest(".criteria-row")) + 1;
+        const startIndex = rows.indexOf(valueSelect.closest(".criteria-row"));
         rows.slice(startIndex).forEach((row) => updateFilterValue(row.querySelector(".filter-field")));
       };
       valueSelect.addEventListener("input", () => scheduleFilterWork("modal-filter-values", refreshFollowingValues, 120));
@@ -15316,7 +15492,7 @@
             localStorageTrimWarningShown = true;
             console.warn(`Bộ nhớ trình duyệt gần đầy. Đã thu gọn lịch sử cục bộ còn ${historyLimit} bản để bảo đảm dữ liệu mới được lưu.`);
           }
-          setSaveStatus("saved", getSupabaseAccessToken() && isAdminMode ? "Đã lưu trên máy • Đang đồng bộ…" : "Đã lưu trên máy");
+          setSaveStatus("saved", getSupabaseAccessToken() && isAdminMode ? "Đã lưu ✓ · đang đồng bộ đám mây" : "Đã lưu ✓ (trên máy)");
           return true;
         } catch (error) {
           lastError = error;
@@ -15541,16 +15717,29 @@
       }
     }
 
+    // Chữ ký nội dung để so sánh nhanh, bỏ qua các trường luôn đổi (savedAt) và lịch sử thao tác (auditHistory).
+    function getPayloadContentSignature(payload) {
+      if (!payload || typeof payload !== "object") return "";
+      try {
+        const { savedAt, auditHistory, ...rest } = payload;
+        return JSON.stringify(rest);
+      } catch (error) {
+        return "";
+      }
+    }
+
     function queueSupabaseSave(payload, delay = 250) {
       if (!isAdminMode || isRestoringBackup || isApplyingRemoteData) return;
       if (!getSupabaseAccessToken()) {
-        setSaveStatus("saved", "Đã lưu trên máy");
+        setSaveStatus("saved", "Đã lưu ✓ (trên máy)");
         return;
       }
       pendingSupabasePayload = payload ? { ...payload } : buildAppDataPayload();
       clearTimeout(supabaseSaveTimer);
-      setSaveStatus("saving", "Đã lưu trên máy • Đang đồng bộ…");
-      supabaseSaveTimer = setTimeout(flushSupabaseSave, delay);
+      // Giữ trạng thái xanh "đã lưu" (không dùng chấm vàng "saving") để anh biết có thể sửa tiếp ngay; đồng bộ đám mây chạy nền.
+      setSaveStatus("saved", "Đã lưu ✓ · đang đồng bộ đám mây");
+      // Gộp các lần sửa liên tiếp: chỉ tải lên sau khi ngừng gõ ~2s, tránh đẩy cả cục dữ liệu mỗi thao tác.
+      supabaseSaveTimer = setTimeout(flushSupabaseSave, Math.max(Number(delay) || 0, ERP_SUPABASE_SAVE_DEBOUNCE));
     }
 
     async function flushSupabaseSave() {
@@ -15561,6 +15750,12 @@
       try {
         const ok = await refreshSupabaseSessionIfNeeded();
         if (!ok) throw new Error("Phiên đăng nhập Supabase không còn hợp lệ.");
+        // Nếu nội dung không đổi so với lần tải lên gần nhất thì bỏ qua, khỏi đẩy lại ~1MB vô ích.
+        const signature = getPayloadContentSignature(payload);
+        if (signature && signature === lastUploadedContentSignature) {
+          if (!pendingSupabasePayload) setSaveStatus("saved", "Đã lưu ✓ · đã đồng bộ");
+          return;
+        }
         const rows = await supabaseFetch("/rest/v1/erp_state?on_conflict=id", {
           method: "POST",
           headers: { Prefer: "resolution=merge-duplicates,return=representation" },
@@ -15572,11 +15767,12 @@
         });
         const savedRow = Array.isArray(rows) ? rows[0] : null;
         if (savedRow?.updated_at) lastSupabaseUpdatedAt = savedRow.updated_at;
-        if (!pendingSupabasePayload) setSaveStatus("saved", "Đã lưu và đồng bộ");
+        lastUploadedContentSignature = signature;
+        if (!pendingSupabasePayload) setSaveStatus("saved", "Đã lưu ✓ · đã đồng bộ");
       } catch (error) {
         console.warn("Không thể lưu dữ liệu lên Supabase:", error);
         if (!pendingSupabasePayload) pendingSupabasePayload = payload;
-        setSaveStatus("warning", "Đã lưu trên máy • Chờ đồng bộ");
+        setSaveStatus("warning", "Đã lưu ✓ · sẽ tự đồng bộ lại");
         clearTimeout(supabaseSaveTimer);
         supabaseSaveTimer = setTimeout(flushSupabaseSave, 3000);
       } finally {
@@ -15632,6 +15828,7 @@
         if (Number.isInteger(payload.activeOrderIndex)) activeOrderIndex = payload.activeOrderIndex;
         if (payload.activeWorkOrderNo) activeWorkOrderNo = payload.activeWorkOrderNo;
         normalizeSheet1AndSheet2UomDisplays();
+        normalizeSheet1AndSheet2SupplierDisplays();
         repairSheet1VietnameseText();
         cachedAppDataPayload = { ...payload };
         persistAppDataLocally(cachedAppDataPayload);
@@ -15648,6 +15845,12 @@
       try {
         const ok = await refreshSupabaseSessionIfNeeded();
         if (!ok) return false;
+        // Kiểm tra nhẹ trước (chỉ lấy updated_at, vài byte): nếu máy chủ chưa đổi thì khỏi tải cả cục data (~1MB) mỗi 10 giây.
+        if (!forceApply && lastSupabaseUpdatedAt) {
+          const metaRows = await supabaseFetch(`/rest/v1/erp_state?select=updated_at&id=eq.${encodeURIComponent(ERP_SUPABASE_STATE_ID)}&limit=1`);
+          const metaRow = Array.isArray(metaRows) ? metaRows[0] : null;
+          if (metaRow?.updated_at && metaRow.updated_at <= lastSupabaseUpdatedAt) return true;
+        }
         const rows = await supabaseFetch(`/rest/v1/erp_state?select=data,updated_at&id=eq.${encodeURIComponent(ERP_SUPABASE_STATE_ID)}&limit=1`);
         const row = Array.isArray(rows) ? rows[0] : null;
         if (!row?.data || !isValidAppDataPayload(row.data)) {
@@ -15671,6 +15874,8 @@
         if (!forceApply && lastSupabaseUpdatedAt && row.updated_at && row.updated_at <= lastSupabaseUpdatedAt) return true;
         lastSupabaseUpdatedAt = row.updated_at || "";
         applyAppDataPayload(row.data);
+        // Ghi nhận chữ ký vừa áp dụng: nếu ngay sau đó không sửa gì thì không tải lại bản y hệt lên Supabase.
+        lastUploadedContentSignature = getPayloadContentSignature(row.data);
         if (isAdminMode && ensureManagedAdminAccount()) {
           cachedAppDataPayload = buildAppDataPayload();
           queueSupabaseSave(cachedAppDataPayload, 100);
@@ -15924,6 +16129,7 @@
   </script>
 </body>
 </html>
+
 
 
 
