@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260712235050"></script>
-  <script src="preview-images-data.js?v=20260712235050"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260713081707"></script>
+  <script src="preview-images-data.js?v=20260713081707"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -2728,15 +2728,15 @@
       <div class="toolbar is-hidden" id="sheet1ProductFilterToolbar" style="margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
         <div class="field">
           <label>Mã Sản phẩm<span>Product Code</span></label>
-          <input class="control" id="sheet1ProductFilterCode" list="sheet1ProductCodeFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1ProductFilterCode" list="sheet1ProductCodeFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field">
           <label>Tên sản phẩm<span>Product Name</span></label>
-          <input class="control" id="sheet1ProductFilterName" list="sheet1ProductNameFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1ProductFilterName" list="sheet1ProductNameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field">
           <label>Trạng Thái<span>Status</span></label>
-          <input class="control" id="sheet1ProductFilterStatus" list="sheet1ProductStatusFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1ProductFilterStatus" list="sheet1ProductStatusFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field" style="justify-content:end;">
           <label>&nbsp;<span>&nbsp;</span></label>
@@ -2748,7 +2748,7 @@
       <div class="toolbar is-hidden" id="sheet1HardwareFilterToolbar" style="margin-top: 10px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
         <div class="field">
           <label>Tên hàng<span>Item Name</span></label>
-          <input class="control" id="sheet1HardwareFilterName" list="sheet1HardwareNameFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1HardwareFilterName" list="sheet1HardwareNameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field">
           <label>Mã phần cứng FW<span>FW Code</span></label>
@@ -2760,11 +2760,11 @@
         </div>
         <div class="field">
           <label>Nhà cung cấp<span>Supplier</span></label>
-          <input class="control" id="sheet1HardwareFilterSupplier" list="sheet1HardwareSupplierFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1HardwareFilterSupplier" list="sheet1HardwareSupplierFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field">
           <label>Trạng thái<span>Status</span></label>
-          <input class="control" id="sheet1HardwareFilterStatus" list="sheet1HardwareStatusFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1HardwareFilterStatus" list="sheet1HardwareStatusFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field" style="justify-content:end;">
           <label>&nbsp;<span>&nbsp;</span></label>
@@ -2776,11 +2776,11 @@
       <div class="toolbar is-hidden" id="sheet1ProductionHardwareFilterToolbar" style="margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
         <div class="field">
           <label>Tên phần cứng<span>Hardware Name</span></label>
-          <input class="control" id="sheet1ProductionHardwareFilterName" list="sheet1ProductionHardwareNameFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1ProductionHardwareFilterName" list="sheet1ProductionHardwareNameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field">
           <label>Mã phần cứng PP<span>PP Code</span></label>
-          <input class="control" id="sheet1ProductionHardwareFilterPp" list="sheet1ProductionHardwarePpFilterList" placeholder="Tất cả / All">
+          <input class="control" id="sheet1ProductionHardwareFilterPp" list="sheet1ProductionHardwarePpFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
         </div>
         <div class="field" style="justify-content:end;">
           <label>&nbsp;<span>&nbsp;</span></label>
@@ -2903,27 +2903,27 @@
         <div class="toolbar is-hidden" id="importFilterToolbar" style="margin-top: 10px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
           <div class="field">
             <label>Số Invoice<span>Invoice No</span></label>
-            <input class="control" id="importFilterInvoice" list="importInvoiceFilterList" placeholder="Tất cả / All">
+            <input class="control" id="importFilterInvoice" list="importInvoiceFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Tên hàng<span>Item Name</span></label>
-            <input class="control" id="importFilterName" list="importNameFilterList" placeholder="Tất cả / All">
+            <input class="control" id="importFilterName" list="importNameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã phần cứng FW<span>FW Code</span></label>
-            <input class="control" id="importFilterFw" list="importFwFilterList" placeholder="Tất cả / All">
+            <input class="control" id="importFilterFw" list="importFwFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã phần cứng PP<span>PP Code</span></label>
-            <input class="control" id="importFilterPp" list="importPpFilterList" placeholder="Tất cả / All">
+            <input class="control" id="importFilterPp" list="importPpFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Người gửi<span>Sender</span></label>
-            <input class="control" id="importFilterSupplier" list="importSenderFilterList" placeholder="Tất cả / All">
+            <input class="control" id="importFilterSupplier" list="importSenderFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Trạng thái<span>Status</span></label>
-            <input class="control" id="importFilterStatus" list="importStatusFilterList" placeholder="Tất cả / All">
+            <input class="control" id="importFilterStatus" list="importStatusFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field" style="justify-content:end;">
             <label>&nbsp;<span>&nbsp;</span></label>
@@ -2975,15 +2975,15 @@
         <div class="toolbar is-hidden" id="warehouseStockFilterToolbar" data-warehouse-filter-toolbar="ton-kho" style="margin-top: 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
           <div class="field">
             <label>Mã phần cứng FW<span>FW Hardware Code</span></label>
-            <input class="control" id="warehouseStockFilterFw" list="warehouseStockFwFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehouseStockFilterFw" list="warehouseStockFwFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã phần cứng PP<span>PP Hardware Code</span></label>
-            <input class="control" id="warehouseStockFilterPp" list="warehouseStockPpFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehouseStockFilterPp" list="warehouseStockPpFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Tên hàng<span>Item Name</span></label>
-            <input class="control" id="warehouseStockFilterName" list="warehouseStockNameFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehouseStockFilterName" list="warehouseStockNameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field" style="justify-content:end;">
             <label>&nbsp;<span>&nbsp;</span></label>
@@ -2993,19 +2993,19 @@
         <div class="toolbar is-hidden" id="warehousePendingFilterToolbar" data-warehouse-filter-toolbar="cho-san-xuat" style="margin-top: 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
           <div class="field">
             <label>Mã phần cứng FW<span>FW Hardware Code</span></label>
-            <input class="control" id="warehousePendingFilterFw" list="warehousePendingFwFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehousePendingFilterFw" list="warehousePendingFwFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã phần cứng PP<span>PP Hardware Code</span></label>
-            <input class="control" id="warehousePendingFilterPp" list="warehousePendingPpFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehousePendingFilterPp" list="warehousePendingPpFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Tên hàng<span>Item Name</span></label>
-            <input class="control" id="warehousePendingFilterName" list="warehousePendingNameFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehousePendingFilterName" list="warehousePendingNameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Lệnh sản xuất<span>Work Order</span></label>
-            <input class="control" id="warehousePendingFilterWo" list="warehousePendingWoFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehousePendingFilterWo" list="warehousePendingWoFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field" style="justify-content:end;">
             <label>&nbsp;<span>&nbsp;</span></label>
@@ -3015,15 +3015,15 @@
         <div class="toolbar is-hidden" id="warehouseDefectiveFilterToolbar" data-warehouse-filter-toolbar="phan-cung-loi" style="margin-top: 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
           <div class="field">
             <label>Mã phần cứng FW<span>FW Hardware Code</span></label>
-            <input class="control" id="warehouseDefectiveFilterFw" list="warehouseDefectiveFwFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehouseDefectiveFilterFw" list="warehouseDefectiveFwFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã phần cứng PP<span>PP Hardware Code</span></label>
-            <input class="control" id="warehouseDefectiveFilterPp" list="warehouseDefectivePpFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehouseDefectiveFilterPp" list="warehouseDefectivePpFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Tên hàng<span>Item Name</span></label>
-            <input class="control" id="warehouseDefectiveFilterName" list="warehouseDefectiveNameFilterList" placeholder="Gõ một phần để lọc">
+            <input class="control" id="warehouseDefectiveFilterName" list="warehouseDefectiveNameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field" style="justify-content:end;">
             <label>&nbsp;<span>&nbsp;</span></label>
@@ -3131,31 +3131,31 @@
         <div class="toolbar is-hidden" id="sheet2FilterToolbar" style="margin-top: 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
           <div class="field">
             <label>Mã sản phẩm<span>Product Code</span></label>
-            <input class="control" id="sheet2FilterProductCode" list="sheet2ProductCodeFilterList" placeholder="Tất cả / All">
+            <input class="control" id="sheet2FilterProductCode" list="sheet2ProductCodeFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Tên phần cứng<span>Hardware Name</span></label>
-            <input class="control" id="sheet2FilterName" list="sheet2NameFilterList" placeholder="Tất cả / All">
+            <input class="control" id="sheet2FilterName" list="sheet2NameFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã phần cứng FW<span>FW Code</span></label>
-            <input class="control" id="sheet2FilterFw" list="sheet2FwFilterList" placeholder="Tất cả / All">
+            <input class="control" id="sheet2FilterFw" list="sheet2FwFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã phần cứng PP<span>PP Code</span></label>
-            <input class="control" id="sheet2FilterPp" list="sheet2PpFilterList" placeholder="Tất cả / All">
+            <input class="control" id="sheet2FilterPp" list="sheet2PpFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Nguyên liệu<span>Material</span></label>
-            <input class="control" id="sheet2FilterMaterial" list="sheet2MaterialFilterList" placeholder="Tất cả / All">
+            <input class="control" id="sheet2FilterMaterial" list="sheet2MaterialFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Nhà cung cấp<span>Supplier</span></label>
-            <input class="control" id="sheet2FilterSupplier" list="sheet2SupplierFilterList" placeholder="Tất cả / All">
+            <input class="control" id="sheet2FilterSupplier" list="sheet2SupplierFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Trạng thái<span>Status</span></label>
-            <input class="control" id="sheet2FilterStatus" list="sheet2StatusFilterList" placeholder="Tất cả / All">
+            <input class="control" id="sheet2FilterStatus" list="sheet2StatusFilterList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field" style="justify-content:end;">
             <label>&nbsp;<span>&nbsp;</span></label>
@@ -3220,15 +3220,15 @@
         <div class="toolbar is-hidden" id="sheet5OrderFilterToolbar" style="margin-top: 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
           <div class="field">
             <label>Số đơn hàng<span>Order No</span></label>
-            <input class="control" id="sheet5OrderFilterOrderNo" list="sheet5OrderFilterOrderNoList" placeholder="Tất cả / All">
+            <input class="control" id="sheet5OrderFilterOrderNo" list="sheet5OrderFilterOrderNoList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã sản phẩm<span>Product Code</span></label>
-            <input class="control" id="sheet5OrderFilterProductCode" list="sheet5OrderFilterProductCodeList" placeholder="Tất cả / All">
+            <input class="control" id="sheet5OrderFilterProductCode" list="sheet5OrderFilterProductCodeList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Tên sản phẩm<span>Product Name</span></label>
-            <input class="control" id="sheet5OrderFilterProductName" list="sheet5OrderFilterProductNameList" placeholder="Tất cả / All">
+            <input class="control" id="sheet5OrderFilterProductName" list="sheet5OrderFilterProductNameList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field" style="justify-content:end;">
             <label>&nbsp;<span>&nbsp;</span></label>
@@ -3239,19 +3239,19 @@
         <div class="toolbar is-hidden" id="sheet5WorkOrderFilterToolbar" style="margin-top: 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) 116px; gap: 10px; background: var(--surface-2); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); box-shadow: var(--shadow);">
           <div class="field">
             <label>Số lệnh sản xuất<span>Work Order</span></label>
-            <input class="control" id="sheet5WoFilterWoNo" list="sheet5WoFilterWoNoList" placeholder="Tất cả / All">
+            <input class="control" id="sheet5WoFilterWoNo" list="sheet5WoFilterWoNoList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Mã sản phẩm<span>Product Code</span></label>
-            <input class="control" id="sheet5WoFilterProductCode" list="sheet5WoFilterProductCodeList" placeholder="Tất cả / All">
+            <input class="control" id="sheet5WoFilterProductCode" list="sheet5WoFilterProductCodeList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Tên sản phẩm<span>Product Name</span></label>
-            <input class="control" id="sheet5WoFilterProductName" list="sheet5WoFilterProductNameList" placeholder="Tất cả / All">
+            <input class="control" id="sheet5WoFilterProductName" list="sheet5WoFilterProductNameList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field">
             <label>Số đơn<span>Order No</span></label>
-            <input class="control" id="sheet5WoFilterOrderNo" list="sheet5WoFilterOrderNoList" placeholder="Tất cả / All">
+            <input class="control" id="sheet5WoFilterOrderNo" list="sheet5WoFilterOrderNoList" placeholder="Nhiều mã, cách nhau bằng dấu phẩy">
           </div>
           <div class="field" style="justify-content:end;">
             <label>&nbsp;<span>&nbsp;</span></label>
@@ -3267,6 +3267,7 @@
                 <tr>
                   <th>Hình ảnh<span>Preview</span></th>
                   <th>Mã Sản phẩm<span>Product Code</span></th>
+                  <th>Part Number<span>Part number</span></th>
                   <th>Tên sản phẩm<span>Product Name</span></th>
                   <th>Số lượng<span>Quantity</span></th>
                   <th>Đơn vị<span>UOM</span></th>
@@ -3288,6 +3289,7 @@
                 <tr>
                   <th>Hình ảnh<span>Preview</span></th>
                   <th>Mã Sản phẩm<span>Product Code</span></th>
+                  <th>Part Number<span>Part number</span></th>
                   <th>Tên sản phẩm<span>Product Name</span></th>
                   <th>Số lượng<span>Quantity</span></th>
                   <th>Đơn vị<span>UOM</span></th>
@@ -3803,15 +3805,15 @@
             </div>
             <div class="criteria-row">
               <div class="field"><label>Field 1<span>Trường lọc 1</span></label><select class="control filter-field" name="field1"></select></div>
-              <div class="field"><label>Value 1<span>Giá trị 1</span></label><input class="control filter-value" name="value1" list="modalFilterValueList1" placeholder="Gõ một phần để lọc"></div>
+              <div class="field"><label>Value 1<span>Giá trị 1</span></label><input class="control filter-value" name="value1" list="modalFilterValueList1" placeholder="Nhiều mã, cách nhau bằng dấu phẩy"></div>
             </div>
             <div class="criteria-row">
               <div class="field"><label>Field 2<span>Trường lọc 2</span></label><select class="control filter-field" name="field2"></select></div>
-              <div class="field"><label>Value 2<span>Giá trị 2</span></label><input class="control filter-value" name="value2" list="modalFilterValueList2" placeholder="Gõ một phần để lọc"></div>
+              <div class="field"><label>Value 2<span>Giá trị 2</span></label><input class="control filter-value" name="value2" list="modalFilterValueList2" placeholder="Nhiều mã, cách nhau bằng dấu phẩy"></div>
             </div>
             <div class="criteria-row">
               <div class="field"><label>Field 3<span>Trường lọc 3</span></label><select class="control filter-field" name="field3"></select></div>
-              <div class="field"><label>Value 3<span>Giá trị 3</span></label><input class="control filter-value" name="value3" list="modalFilterValueList3" placeholder="Gõ một phần để lọc"></div>
+              <div class="field"><label>Value 3<span>Giá trị 3</span></label><input class="control filter-value" name="value3" list="modalFilterValueList3" placeholder="Nhiều mã, cách nhau bằng dấu phẩy"></div>
             </div>
           </div>
         </div>
@@ -5382,6 +5384,19 @@
       });
     }
 
+    // Xóa sạch nội dung cột Ghi chú của bảng Mã phần cứng (giữ cột, chỉ bỏ nội dung — theo yêu cầu).
+    function clearHardwareRemarks() {
+      document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => {
+        const actionCell = row.querySelector(".row-actions")?.closest("td");
+        const usageCell = row.querySelector("[data-hardware-usage-cell]");
+        // Ô ghi chú là ô nằm ngay sau "Sản phẩm sử dụng" và trước "Thao tác".
+        const notesCell = usageCell ? usageCell.nextElementSibling : null;
+        if (notesCell && notesCell !== actionCell && !notesCell.querySelector(".row-actions") && notesCell.textContent.trim() !== "") {
+          notesCell.textContent = "";
+        }
+      });
+    }
+
     function normalizeSheet1AndSheet2UomDisplays() {
       document.querySelectorAll("[data-hardware-table] tbody tr").forEach((row) => {
         const cell = row.cells[7];
@@ -6527,7 +6542,7 @@
 
     function fillSelect(select, options, placeholder) {
       if (select?.tagName === "INPUT") {
-        select.placeholder = placeholder || "Gõ một phần để lọc";
+        select.placeholder = placeholder || "Nhiều mã, cách nhau bằng dấu phẩy";
         const listId = select.getAttribute("list");
         // Ô giá trị lọc cũng hỗ trợ nhiều mã: gợi ý mã kế tiếp sau dấu phẩy.
         if (listId) fillMultiDatalist(listId, select, options.map((option) => String(option.value ?? option)));
@@ -7413,7 +7428,7 @@
         <td data-editable="supplier">${normalizeSupplier(item?.supplier || "")}</td>
         <td data-editable="status"><span class="badge green">Đã duyệt</span></td>
         <td data-editable="hardwareType" data-hardware-type-cell>${renderHardwareTypeCell("Mã chính")}</td>
-        <td data-editable="text">Tạo từ Sheet 3 - chờ khai báo</td>
+        <td data-editable="text"></td>
         <td>
           <div class="row-actions">
             <button class="mini-action primary" data-row-edit>Sửa</button>
@@ -7467,8 +7482,9 @@
     // Người dùng gõ nhiều mã cách nhau bằng dấu phẩy; một dòng khớp nếu trùng BẤT KỲ mã nào.
     // Một mã (không có dấu phẩy) vẫn chạy y như cũ nên hoàn toàn tương thích ngược.
     function getFilterTokens(filterValue) {
+      // Tách nhiều mã: chủ yếu bằng dấu phẩy; chấp nhận thêm chấm phẩy và xuống dòng để dán cả danh sách mã.
       return String(filterValue || "")
-        .split(",")
+        .split(/[,;\n\r]+/)
         .map((token) => token.replace(/\s+/g, " ").trim().toLowerCase())
         .filter(Boolean);
     }
@@ -7533,12 +7549,16 @@
           pp,
           uom: normalizeDownstreamUom(row.cells[7]?.innerText.replace(/\s+/g, " ").trim() || ""),
           type,
+          status: row.cells[9]?.innerText.replace(/\s+/g, " ").trim() || "",
           qty: settings.qty || "",
           priority: settings.priority || "",
           hidden: settings.hidden === true
         };
       }).filter((item) => {
         if (!item.key || item.hidden || (item.type !== "Mã chính" && item.type !== "Mã bộ")) return false;
+        // Ẩn mã phần cứng có trạng thái "Khác" (Other) khỏi bảng Mã Phần Cứng Sản Xuất.
+        const statusKey = item.status.toLowerCase();
+        if (statusKey === "khác" || statusKey === "other") return false;
         if (!applyFilters) return true;
         if (!matchesSheet1Filter(item.name, sheet1ProductionHardwareFilters.name)) return false;
         if (!matchesSheet1Filter(item.pp, sheet1ProductionHardwareFilters.pp)) return false;
@@ -11170,6 +11190,42 @@
       return `<input class="bom-inline-input" data-bom-target="department" list="bomDepartmentOptions" value="${escapeAccountHtml(current)}" placeholder="Bộ phận...">`;
     }
 
+    // Thứ hạng bộ phận để sắp xếp: Lắp ráp / ráp -> Đóng gói / ráp -> Vật tư đóng gói -> (bộ phận khác / trống) cuối.
+    function getBomDepartmentRank(department) {
+      const idx = BOM_DEPARTMENT_OPTIONS.indexOf(normalizeBomDepartment(department));
+      return idx === -1 ? BOM_DEPARTMENT_OPTIONS.length : idx;
+    }
+
+    function getBomRowDepartment(row) {
+      const cell = row?.cells?.[7];
+      if (!cell) return "";
+      const field = cell.querySelector("input, select");
+      return String(field ? field.value : cell.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
+    // Sắp xếp lại các dòng BOM theo Bộ phận, TRONG TỪNG sản phẩm (giữ nguyên nhóm sản phẩm và dòng nhập ở cuối).
+    function sortBomRowsByDepartment() {
+      const tbody = document.querySelector("[data-bom-body]");
+      if (!tbody) return;
+      const entryRow = tbody.querySelector("[data-bom-entry-row]");
+      const dataRows = Array.from(tbody.querySelectorAll("tr[data-bom-parent]"));
+      if (dataRows.length < 2) return;
+      // Nhóm theo sản phẩm cha, giữ đúng thứ tự nhóm như đang có.
+      const groups = new Map();
+      dataRows.forEach((row) => {
+        const parent = row.dataset.bomParent || "";
+        if (!groups.has(parent)) groups.set(parent, []);
+        groups.get(parent).push(row);
+      });
+      // Trong mỗi nhóm: sắp xếp ổn định theo thứ hạng bộ phận rồi ghép lại (nhóm nọ nối tiếp nhóm kia).
+      groups.forEach((groupRows) => {
+        groupRows
+          .map((row, index) => ({ row, index, rank: getBomDepartmentRank(getBomRowDepartment(row)) }))
+          .sort((a, b) => a.rank - b.rank || a.index - b.index)
+          .forEach(({ row }) => tbody.insertBefore(row, entryRow || null));
+      });
+    }
+
     function startBomRowEdit(row) {
       if (row.matches("[data-bom-entry-row]")) return;
       row.dataset.originalHtml = row.innerHTML;
@@ -11255,6 +11311,7 @@
       if (wasVisible !== isVisible) {
         setSheet2VisibleCount(getSheet2VisibleCountFromDom() + (isVisible ? 1 : -1));
       }
+      sortBomRowsByDepartment();
       scheduleWarehouseStockRefresh();
       if (persistBomRowsImmediately()) showToast("Đã lưu dòng BOM.");
     }
@@ -11312,9 +11369,7 @@
       if (matchesDetailHardwareCode(values[1], values[2])) {
         return { ok: false, message: "Lỗi: Loại Mã chi tiết không được nhập vào BOM Sheet 2." };
       }
-      if (isDuplicateHardwareCode(values[1], values[2], currentRow)) {
-        return { ok: false, message: "Lỗi: Mã phần cứng FW hoặc PP đã tồn tại trong BOM của sản phẩm này!" };
-      }
+      // Cho phép nhập trùng: một mã phần cứng có thể xuất hiện nhiều lần trong BOM của cùng sản phẩm.
       return { ok: true, normalizedQty };
     }
 
@@ -11363,6 +11418,7 @@
       newRow.classList.toggle("is-hidden", !isVisible);
       if (isVisible) setSheet2VisibleCount(getSheet2VisibleCountFromDom() + 1);
       clearBomEntryRow(false);
+      sortBomRowsByDepartment();
       scheduleWarehouseStockRefresh();
       if (persistBomRowsImmediately()) showToast("Đã thêm và lưu dòng BOM mới.");
     }
@@ -14664,7 +14720,11 @@
       
       donHangTbody.innerHTML = "";
       lenhSxTbody.innerHTML = "";
-      
+
+      // Part Number lấy từ bảng Mã sản phẩm (Quản lý mã) theo Mã sản phẩm — không lưu riêng, luôn tra tại chỗ.
+      const productPartMap = new Map(getProductCatalog().map((p) => [String(p.code || "").trim().toLowerCase(), p.partNumber || "-"]));
+      const partOf = (code) => productPartMap.get(String(code || "").trim().toLowerCase()) || "-";
+
       const hasOrderFilters = Boolean(sheet5OrderFilters.orderNo || sheet5OrderFilters.productCode || sheet5OrderFilters.productName);
       const orderLineRows = hasOrderFilters
         ? getSheet5OrderLineRows().filter(({ order, item }) =>
@@ -14686,6 +14746,7 @@
           tr.innerHTML = `
             <td>${renderProductPreviewBox(item.productCode)}</td>
             <td><input class="bom-inline-input" id="editItemCode-${itemIndex}" data-edit-autofill="code" list="sheet5ProductCodeList" value="${item.productCode}"></td>
+            <td id="editItemPart-${itemIndex}" style="font-weight: 800; color: var(--text-blue);">${partOf(item.productCode)}</td>
             <td><span class="bom-inline-edit" contenteditable="true" id="editItemName-${itemIndex}">${item.productName}</span></td>
             <td><span class="bom-inline-edit" contenteditable="true" id="editItemQty-${itemIndex}">${item.qty}</span></td>
             <td><input class="bom-inline-input" style="width: 80px;" id="editItemUom-${itemIndex}" list="sheet5UomList" value="${item.uom}"></td>
@@ -14704,6 +14765,8 @@
                 const catalog = getProductCatalog();
                 const match = catalog.find(i => i.code.toLowerCase() === input.value.trim().toLowerCase());
                 if (tr.cells[0]) tr.cells[0].innerHTML = renderProductPreviewBox(input.value.trim());
+                const partCell = document.getElementById(`editItemPart-${itemIndex}`);
+                if (partCell) partCell.textContent = match?.partNumber || "-";
                 if (match) {
                   const nameSpan = document.getElementById(`editItemName-${itemIndex}`);
                   if (nameSpan) nameSpan.textContent = match.name;
@@ -14715,6 +14778,7 @@
           tr.innerHTML = `
             <td>${renderProductPreviewBox(item.productCode)}</td>
             <td style="font-weight: 800; color: #ffffff;">${item.productCode}</td>
+            <td style="font-weight: 800; color: var(--text-blue);">${partOf(item.productCode)}</td>
             <td>${item.productName}</td>
             <td>${item.qty.toLocaleString()}</td>
             <td>${item.uom}</td>
@@ -14736,6 +14800,7 @@
         blankRow.innerHTML = `
           <td><div class="preview-box"></div></td>
           <td><input class="bom-inline-input" id="newOrderItemCode" list="sheet5ProductCodeList" placeholder="Chọn/Nhập mã..."></td>
+          <td id="newOrderItemPart" style="font-weight: 800; color: var(--text-blue);">-</td>
           <td><span class="bom-inline-edit" contenteditable="true" id="newOrderItemName" placeholder="Tên sản phẩm..."></span></td>
           <td><span class="bom-inline-edit" contenteditable="true" id="newOrderItemQty" placeholder="Số lượng..."></span></td>
           <td><input class="bom-inline-input" style="width: 80px;" id="newOrderItemUom" list="sheet5UomList" placeholder="Đơn vị..."></td>
@@ -14757,6 +14822,8 @@
             const catalog = getProductCatalog();
             const match = catalog.find(i => i.code.toLowerCase() === input.value.trim().toLowerCase());
             if (blankRow.cells[0]) blankRow.cells[0].innerHTML = renderProductPreviewBox(input.value.trim());
+            const partCell = document.getElementById("newOrderItemPart");
+            if (partCell) partCell.textContent = match?.partNumber || "-";
             if (match) {
               const nameSpan = document.getElementById("newOrderItemName");
               if (nameSpan) nameSpan.textContent = match.name;
@@ -14811,6 +14878,7 @@
           tr.innerHTML = `
             <td>${renderProductPreviewBox(item.productCode)}</td>
             <td style="font-weight: 800; color: #ffffff;">${item.productCode}</td>
+            <td style="font-weight: 800; color: var(--text-blue);">${partOf(item.productCode)}</td>
             <td>${item.productName}</td>
             <td>${item.qty.toLocaleString()}</td>
             <td>${item.uom}</td>
@@ -14852,6 +14920,7 @@
           tr.innerHTML = `
             <td>${renderProductPreviewBox(item.productCode)}</td>
             <td><input class="bom-inline-input" id="editWoCode-${allocationIndex}" list="sheet5ProductCodeList" value="${item.productCode}"></td>
+            <td id="editWoPart-${allocationIndex}" style="font-weight: 800; color: var(--text-blue);">${partOf(item.productCode)}</td>
             <td><span class="bom-inline-edit" contenteditable="true" id="editWoName-${allocationIndex}">${item.productName}</span></td>
             <td><span class="bom-inline-edit" contenteditable="true" id="editWoQty-${allocationIndex}">${item.qty}</span></td>
             <td><input class="bom-inline-input" style="width: 80px;" id="editWoUom-${allocationIndex}" list="sheet5UomList" value="${item.uom}"></td>
@@ -14873,7 +14942,9 @@
                 const orderMeta = getProductMetaFromOrders(input.value.trim());
                 const nameSpan = document.getElementById(`editWoName-${allocationIndex}`);
                 const uomInput = document.getElementById(`editWoUom-${allocationIndex}`);
+                const partCell = document.getElementById(`editWoPart-${allocationIndex}`);
                 if (tr.cells[0]) tr.cells[0].innerHTML = renderProductPreviewBox(input.value.trim());
+                if (partCell) partCell.textContent = match?.partNumber || "-";
                 if (nameSpan) nameSpan.textContent = match?.name || orderMeta?.productName || "";
                 if (uomInput && orderMeta?.uom) uomInput.value = orderMeta.uom;
               });
@@ -14883,6 +14954,7 @@
           tr.innerHTML = `
             <td>${renderProductPreviewBox(item.productCode)}</td>
             <td style="font-weight: 800; color: #ffffff;">${item.productCode}</td>
+            <td style="font-weight: 800; color: var(--text-blue);">${partOf(item.productCode)}</td>
             <td>${item.productName}</td>
             <td>${Number(item.qty || 0).toLocaleString()}</td>
             <td>${item.uom}</td>
@@ -14904,6 +14976,7 @@
         woBlankRow.innerHTML = `
           <td><div class="preview-box"></div></td>
           <td><input class="bom-inline-input" id="newWoItemCode" list="sheet5ProductCodeList" placeholder="Chọn/Nhập mã..."></td>
+          <td id="newWoItemPart" style="font-weight: 800; color: var(--text-blue);">-</td>
           <td><span class="bom-inline-edit" contenteditable="true" id="newWoItemName" placeholder="Tên sản phẩm..."></span></td>
           <td><span class="bom-inline-edit" contenteditable="true" id="newWoItemQty" placeholder="Số lượng..."></span></td>
           <td><input class="bom-inline-input" style="width: 80px;" id="newWoItemUom" list="sheet5UomList" placeholder="Đơn vị..."></td>
@@ -14925,6 +14998,8 @@
             const catalog = getProductCatalog();
             const match = catalog.find(i => i.code.toLowerCase() === input.value.trim().toLowerCase());
             if (woBlankRow.cells[0]) woBlankRow.cells[0].innerHTML = renderProductPreviewBox(input.value.trim());
+            const partCell = document.getElementById("newWoItemPart");
+            if (partCell) partCell.textContent = match?.partNumber || "-";
             if (match) {
               const nameSpan = document.getElementById("newWoItemName");
               if (nameSpan) nameSpan.textContent = match.name;
@@ -15945,7 +16020,9 @@
         normalizeSheet1AndSheet2UomDisplays();
         normalizeSheet1AndSheet2SupplierDisplays();
         normalizeBomDepartmentDisplays();
+        sortBomRowsByDepartment();
         repairSheet1VietnameseText();
+        clearHardwareRemarks();
         cachedAppDataPayload = { ...payload };
         persistAppDataLocally(cachedAppDataPayload);
         refreshLocalAccountRole();
@@ -16245,6 +16322,7 @@
   </script>
 </body>
 </html>
+
 
 
 
