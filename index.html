@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260715124610"></script>
-  <script src="preview-images-data.js?v=20260715124610"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260716053940"></script>
+  <script src="preview-images-data.js?v=20260716053940"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -9488,6 +9488,9 @@
       const outboundTotals = {};
       const reservedTotals = {};
       const excludeWoNo = String(options.excludeWoNo || "").trim().toLowerCase();
+      const excludeWoNoSet = Array.isArray(options.excludeWoNos)
+        ? new Set(options.excludeWoNos.map(w => String(w || "").trim().toLowerCase()))
+        : (options.excludeWoNos instanceof Set ? options.excludeWoNos : null);
 
       importShipments.forEach(shipment => {
         (shipment.items || []).forEach(item => {
@@ -9515,7 +9518,9 @@
         // Khi lập báo cáo gộp TẤT CẢ lệnh sản xuất: không trừ phần giữ cho chính các lệnh này khỏi tồn khả dụng
         // (vì ta đang tính nhu cầu cho chúng), nên tồn khả dụng = tồn kho thực có.
         if (options.excludeAllWorkOrders) return;
-        if (excludeWoNo && String(item.woNo || "").trim().toLowerCase() === excludeWoNo) return;
+        const woKey = String(item.woNo || "").trim().toLowerCase();
+        if (excludeWoNo && woKey === excludeWoNo) return;
+        if (excludeWoNoSet && excludeWoNoSet.has(woKey)) return;
         const productCode = String(item.productCode || "").trim().toLowerCase();
         bomLines.filter(line => line.parent.toLowerCase() === productCode).forEach(bom => {
           const groupKey = getOrderCheckGroupKey(bom);
@@ -9661,41 +9666,33 @@
       if (!list) return;
       list.innerHTML = "";
       if (orderCheckContext.type === "workOrder") {
-        const woNo = orderCheckContext.workOrderNo || "-";
-        const related = productionAllocations.filter(item => !item.isHeader && String(item.woNo || "") === String(woNo || ""));
-        const itemCount = related.length;
-        const totalQty = related.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
-        // Dòng tiêu đề lệnh (không tích).
-        const woHead = document.createElement("div");
-        woHead.className = "check-row";
-        woHead.style.opacity = "0.8";
-        woHead.innerHTML = `<span><strong>Lệnh: ${escapeAccountHtml(woNo)}</strong> — ${itemCount} dòng | ${totalQty.toLocaleString()} SL</span>`;
-        list.appendChild(woHead);
-        // Gom số lượng theo từng ĐƠN HÀNG trong lệnh sản xuất, cho tích chọn nhiều/một đơn.
-        const perOrder = new Map();
-        related.forEach(item => {
-          getAllocationLines(item).forEach(line => {
-            const key = String(line.orderNo || "").trim();
-            if (!key) return;
-            if (!perOrder.has(key)) perOrder.set(key, { orderNo: key, qty: 0 });
-            perOrder.get(key).qty += Number(line.qty) || 0;
-          });
+        // Liệt kê TẤT CẢ lệnh sản xuất; lệnh đang bấm được tích sẵn, các lệnh khác tick thêm để đối chiếu & xuất chung.
+        const woMap = new Map();
+        productionAllocations.filter(item => !item.isHeader && String(item.woNo || "").trim()).forEach(item => {
+          const woNo = String(item.woNo).trim();
+          const key = woNo.toLowerCase();
+          if (!woMap.has(key)) woMap.set(key, { woNo, lines: 0, qty: 0, orderNos: new Set() });
+          const rec = woMap.get(key);
+          rec.lines += 1;
+          rec.qty += Number(item.qty) || 0;
+          getAllocationLines(item).forEach(line => { if (line.orderNo) rec.orderNos.add(line.orderNo); });
         });
-        const orders = Array.from(perOrder.values());
-        if (!orders.length) {
+        const wos = Array.from(woMap.values());
+        const activeKey = String(orderCheckContext.workOrderNo || "").trim().toLowerCase();
+        if (!wos.length) {
           const label = document.createElement("label");
           label.className = "check-row";
-          label.innerHTML = `<input type="checkbox" checked disabled><span>Chưa liên kết đơn hàng</span>`;
+          label.innerHTML = `<input type="checkbox" checked disabled><span>Chưa có lệnh sản xuất nào</span>`;
           list.appendChild(label);
           return;
         }
-        orders.forEach(o => {
-          const customer = getOrderByNo(o.orderNo)?.customer || "";
+        wos.forEach((wo) => {
+          const isActive = wo.woNo.toLowerCase() === activeKey;
           const label = document.createElement("label");
           label.className = "check-row";
           label.innerHTML = `
-            <input type="checkbox" data-wo-order="${escapeAccountHtml(o.orderNo)}" checked>
-            <span>${escapeAccountHtml(o.orderNo)}${customer ? ` | ${escapeAccountHtml(customer)}` : ""} | ${o.qty.toLocaleString()} SL</span>
+            <input type="checkbox" data-wo-check="${escapeAccountHtml(wo.woNo)}" ${isActive ? "checked" : ""}>
+            <span><strong>${escapeAccountHtml(wo.woNo)}</strong> | ${escapeAccountHtml(Array.from(wo.orderNos).join(", ") || "—")} | ${wo.lines} dòng | ${wo.qty.toLocaleString()} SL</span>
           `;
           list.appendChild(label);
         });
@@ -9802,32 +9799,28 @@
       return buildOrderCheckRowsFromItems(checkItems);
     }
 
-    // Các đơn hàng đang được tích chọn trong modal đối chiếu lệnh sản xuất (null = chưa có ô nào -> lấy toàn bộ lệnh).
-    function getSelectedWorkOrderCheckOrderKeys() {
-      const boxes = Array.from(document.querySelectorAll("#orderCheckOrderList input[data-wo-order]"));
+    // Các LỆNH SẢN XUẤT đang được tích chọn trong modal đối chiếu (null = chưa có ô nào -> chỉ lấy lệnh đang bấm).
+    function getSelectedWorkOrderCheckWoNos() {
+      const boxes = Array.from(document.querySelectorAll("#orderCheckOrderList input[data-wo-check]"));
       if (!boxes.length) return null;
-      return new Set(boxes.filter(b => b.checked).map(b => String(b.dataset.woOrder || "").trim().toLowerCase()));
+      return new Set(boxes.filter(b => b.checked).map(b => String(b.dataset.woCheck || "").trim().toLowerCase()));
     }
 
     function buildWorkOrderCheckRows(woNo) {
-      const targetWoNo = String(woNo || "").trim().toLowerCase();
-      const selectedOrders = getSelectedWorkOrderCheckOrderKeys();
+      const selected = getSelectedWorkOrderCheckWoNos();
+      // Gộp nhu cầu của TẤT CẢ lệnh sản xuất được tích chọn (mặc định là lệnh đang bấm).
+      const targetSet = (selected && selected.size) ? selected : new Set([String(woNo || "").trim().toLowerCase()]);
       const checkItems = productionAllocations
-        .filter(item => !item.isHeader && String(item.woNo || "").trim().toLowerCase() === targetWoNo)
-        .map(item => {
-          // Nếu người dùng tích chọn theo đơn: chỉ cộng số lượng của các đơn được chọn.
-          const qty = selectedOrders
-            ? getAllocationLines(item).reduce((sum, line) => sum + (selectedOrders.has(String(line.orderNo || "").trim().toLowerCase()) ? (Number(line.qty) || 0) : 0), 0)
-            : (Number(item.qty) || 0);
-          return {
-            productCode: item.productCode,
-            productName: item.productName,
-            qty,
-            uom: item.uom
-          };
-        })
+        .filter(item => !item.isHeader && targetSet.has(String(item.woNo || "").trim().toLowerCase()))
+        .map(item => ({
+          productCode: item.productCode,
+          productName: item.productName,
+          qty: Number(item.qty) || 0,
+          uom: item.uom
+        }))
         .filter(item => item.productCode && item.qty > 0);
-      return buildOrderCheckRowsFromItems(checkItems, { excludeWoNo: woNo });
+      // Tồn khả dụng KHÔNG trừ phần giữ cho chính các lệnh đang đối chiếu (tránh trừ 2 lần).
+      return buildOrderCheckRowsFromItems(checkItems, { excludeWoNos: Array.from(targetSet) });
     }
 
     // Gộp phần sản xuất CÒN LẠI (chưa xuất) -> danh sách vật tư cộng dồn (mỗi mã 1 dòng): required / available / shortage.
@@ -10109,8 +10102,10 @@
         "Số lượng thiếu / Shortage qty",
         "SL trong lệnh sản xuất / In work orders"
       ];
+      const selectedWoNames = Array.from(document.querySelectorAll("#orderCheckOrderList input[data-wo-check]:checked"))
+        .map(b => b.dataset.woCheck).filter(Boolean);
       const contextLabel = orderCheckContext.type === "workOrder"
-        ? `Lệnh sản xuất / Work order: ${orderCheckContext.workOrderNo || "-"}`
+        ? `Lệnh sản xuất / Work orders: ${selectedWoNames.join(", ") || orderCheckContext.workOrderNo || "-"}`
         : "Đơn hàng đã chọn / Selected orders";
       const viewLabel = mode === "shortage"
         ? "Gộp tổng phần cứng / Consolidated hardware summary"
@@ -16546,6 +16541,7 @@
   </script>
 </body>
 </html>
+
 
 
 
