@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260715090355"></script>
-  <script src="preview-images-data.js?v=20260715090355"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260715105210"></script>
+  <script src="preview-images-data.js?v=20260715105210"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -3213,6 +3213,7 @@
             <button class="tab" data-order-tab="lenh-sx">Lệnh Sản Xuất<span>Work Orders</span></button>
           </div>
           <div class="sheet-filters" style="display: flex; gap: 8px; align-items: center;">
+            <button class="filter-launch viewer-allowed is-hidden" id="sheet5PurchaseReportBtn" type="button" title="Xuất báo cáo: tồn kho hiện có, tổng cần dùng và cần đặt thêm cho lần sản xuất sau" style="width: auto; min-width: 90px; height: 32px; padding: 0 14px; font-weight: 900; border-radius: var(--radius); font-size: 11px; background: rgba(38,196,107,0.14); border-color: rgba(38,196,107,0.45); color: #dfffea;">Báo cáo đặt hàng<span>Purchase report</span></button>
             <button class="filter-launch" id="sheet5FilterToggleBtn" type="button" style="width: auto; min-width: 90px; height: 32px; padding: 0 14px; font-weight: 900; border-radius: var(--radius); font-size: 11px;">Lọc<span>Filter</span></button>
           </div>
         </div>
@@ -6660,6 +6661,7 @@
           <div class="bom-product-code">${product.code}</div>
           <div class="bom-product-name">${product.name || "-"}</div>
           <div class="bom-product-meta">
+            <div><span>Part Number</span><strong>${product.partNumber || "-"}</strong></div>
             <div><span>${uiText("Material", "Nguyên liệu")}</span><strong>${product.material || "-"}</strong></div>
             <div><span>${uiText("Packing size", "Kích thước đóng gói")}</span><strong>${product.pack || "-"}</strong></div>
             <div><span>NW</span><strong>${product.nw || "-"}</strong></div>
@@ -9167,6 +9169,9 @@
       const isOpen = toggleBtn?.classList.contains("active");
       if (orderToolbar) orderToolbar.classList.toggle("is-hidden", !isOpen || activeOrderTab !== "don-hang");
       if (workOrderToolbar) workOrderToolbar.classList.toggle("is-hidden", !isOpen || activeOrderTab !== "lenh-sx");
+      // Nút "Báo cáo đặt hàng" chỉ hiện ở tab Lệnh Sản Xuất.
+      const purchaseBtn = document.getElementById("sheet5PurchaseReportBtn");
+      if (purchaseBtn) purchaseBtn.classList.toggle("is-hidden", activeOrderTab !== "lenh-sx");
     }
 
     function handleSheet5OrderFilterChange(field, value) {
@@ -9507,6 +9512,9 @@
       });
 
       productionAllocations.filter(shouldReserveProductionAllocation).forEach(item => {
+        // Khi lập báo cáo gộp TẤT CẢ lệnh sản xuất: không trừ phần giữ cho chính các lệnh này khỏi tồn khả dụng
+        // (vì ta đang tính nhu cầu cho chúng), nên tồn khả dụng = tồn kho thực có.
+        if (options.excludeAllWorkOrders) return;
         if (excludeWoNo && String(item.woNo || "").trim().toLowerCase() === excludeWoNo) return;
         const productCode = String(item.productCode || "").trim().toLowerCase();
         bomLines.filter(line => line.parent.toLowerCase() === productCode).forEach(bom => {
@@ -9766,6 +9774,102 @@
         }))
         .filter(item => item.productCode && item.qty > 0);
       return buildOrderCheckRowsFromItems(checkItems, { excludeWoNo: woNo });
+    }
+
+    // Gộp phần sản xuất CÒN LẠI (chưa xuất) -> danh sách vật tư cộng dồn (mỗi mã 1 dòng): required / available / shortage.
+    // Bỏ dòng nháp và các phân bổ đã "Đã xuất" (đã sản xuất/giao xong) để chỉ tính nhu cầu cho phần còn phải làm.
+    function buildAllWorkOrdersPurchaseRows() {
+      const checkItems = productionAllocations
+        .filter(item => shouldReserveProductionAllocation(item) && normalizeWorkOrderStatus(item.status) !== "da xuat")
+        .map(item => ({
+          productCode: item.productCode,
+          productName: item.productName,
+          qty: Number(item.qty) || 0,
+          uom: item.uom
+        }))
+        .filter(item => item.productCode && item.qty > 0);
+      if (!checkItems.length) return [];
+      const rows = buildOrderCheckRowsFromItems(checkItems, { excludeAllWorkOrders: true });
+      return buildOrderCheckShortageSummary(rows);
+    }
+
+    // Báo cáo đặt hàng cho lần sản xuất sau: mỗi vật tư gồm Tổng cần dùng / Tồn kho khả dụng / Cần đặt thêm, kèm ảnh.
+    async function exportNextProductionPurchaseReport() {
+      if (typeof XLSX === "undefined") {
+        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
+        return;
+      }
+      const summary = buildAllWorkOrdersPurchaseRows();
+      if (!summary.length) {
+        showToast("Không còn lệnh sản xuất chưa xuất để lập báo cáo (tất cả đã 'Đã xuất' hoặc đang nháp).");
+        return;
+      }
+      // Tồn kho thực có (không trừ phần giữ cho chính các lệnh này) để hiển thị cột "Tồn kho khả dụng".
+      const rawAvailableMap = getOrderCheckAvailableMap(getOrderCheckBomLines(), { excludeAllWorkOrders: true });
+
+      const headers = [
+        "Hình ảnh / Preview",
+        "Mã phần cứng PP / PP code",
+        "Tên hàng / Item name",
+        "Đơn vị / UOM",
+        "Tổng cần dùng / Required qty",
+        "Tồn kho khả dụng / Available qty",
+        "Cần đặt thêm / To order qty"
+      ];
+      const COL_COUNT = headers.length;
+      const woCount = new Set(productionAllocations
+        .filter(item => shouldReserveProductionAllocation(item) && normalizeWorkOrderStatus(item.status) !== "da xuat" && item.woNo)
+        .map(item => String(item.woNo))).size;
+      const rows = [
+        ["BÁO CÁO ĐẶT HÀNG VẬT TƯ SẢN XUẤT / PRODUCTION PURCHASE REQUISITION"],
+        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        [`Sản xuất còn lại - chưa xuất / Remaining (not shipped) work orders: ${woCount}`],
+        [],
+        headers
+      ];
+      const headerRowIndex = 4;
+      const imageAnchors = [];
+      const rowHeights = { [headerRowIndex]: 30 };
+      summary.forEach((r) => {
+        const rowIndex = rows.length;
+        const pp = r.pp && r.pp !== "-" ? r.pp : (r.fw || "-");
+        const required = Math.round(Number(r.requiredQty) || 0);
+        const stock = Math.round(Number(rawAvailableMap.get(r.key)) || 0);
+        const toOrder = Math.max(0, Math.round(Number(r.shortageQty) || 0));
+        rows.push(["", pp, r.name || "-", normalizeDownstreamUom(r.uom || "-"), required, stock, toOrder]);
+        rowHeights[rowIndex] = 76;
+        const url = getHardwarePreviewExcelUrl(pp);
+        if (url) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: url, name: pp || r.name || "Preview" });
+      });
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const sheetName = "Bao cao dat hang";
+      worksheet["!cols"] = [
+        { wch: 16 }, { wch: 24 }, { wch: 38 }, { wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 18 }
+      ];
+      worksheet["!rows"] = rows.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
+      worksheet["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: COL_COUNT - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: COL_COUNT - 1 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: COL_COUNT - 1 } }
+      ];
+      worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${XLSX.utils.encode_col(COL_COUNT - 1)}${rows.length}` };
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+      const imageAnchorsBySheet = new Map([[sheetName, imageAnchors]]);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const filename = `firstwood-bao-cao-dat-hang-${stamp}.xlsx`;
+      try {
+        const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet);
+        showToast(hasEmbeddedImages
+          ? "Đã xuất Báo cáo đặt hàng kèm hình ảnh."
+          : "Đã xuất Báo cáo đặt hàng (chưa nhúng được ảnh phù hợp).");
+      } catch (error) {
+        console.warn("Không nhúng được ảnh vào Báo cáo đặt hàng:", error);
+        writeWorkbookXlsx(workbook, filename);
+        showToast("Đã xuất Báo cáo đặt hàng nhưng chưa nhúng được ảnh.");
+      }
     }
 
     function buildOrderCheckShortageSummary(rows) {
@@ -10068,19 +10172,30 @@
         { mode: "shortage", name: "Gop tong phan cung" }
       ];
       let totalItemCount = 0;
+      let sheetCount = 0;
       try {
         exportSheets.forEach(({ mode, name }) => {
-          const result = buildOrderCheckExportSheet(mode);
-          totalItemCount += result.itemCount;
-          XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
-          imageAnchorsBySheet.set(name, result.imageAnchors);
-          if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
+          // Dựng từng sheet trong try riêng: một sheet lỗi cũng không làm hỏng cả lần xuất.
+          try {
+            const result = buildOrderCheckExportSheet(mode);
+            totalItemCount += result.itemCount;
+            XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
+            imageAnchorsBySheet.set(name, result.imageAnchors);
+            if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
+            sheetCount += 1;
+          } catch (sheetError) {
+            console.error(`Lỗi khi dựng sheet "${name}" của báo cáo kiểm tra vật tư:`, sheetError);
+          }
         });
       } finally {
         orderCheckViewMode = previousMode;
         renderOrderCheckResults();
       }
 
+      if (!sheetCount) {
+        showToast("Lỗi: không dựng được báo cáo. Mở F12 → Console để xem chi tiết rồi gửi tôi.");
+        return;
+      }
       if (!totalItemCount) {
         showToast("Chưa có kết quả kiểm tra vật tư để xuất.");
         return;
@@ -10088,15 +10203,22 @@
 
       const stamp = new Date().toISOString().slice(0, 10);
       const filename = `firstwood-order-material-check-${stamp}.xlsx`;
+      // Bước 1: thử nhúng ảnh. Bước 2 (dự phòng): xuất file thường không ảnh. Luôn cố ra được 1 file.
       try {
         const hasEmbeddedImages = await writeWorkbookXlsxWithImages(workbook, filename, imageAnchorsBySheet, reportStylesBySheet);
         showToast(hasEmbeddedImages
-          ? "Đã xuất báo cáo kiểm tra vật tư thành 2 sheet kèm hình ảnh."
-          : "Đã xuất báo cáo kiểm tra vật tư thành 2 sheet nhưng không tìm thấy ảnh phù hợp.");
+          ? "Đã xuất báo cáo kiểm tra vật tư kèm hình ảnh."
+          : "Đã xuất báo cáo kiểm tra vật tư (không tìm thấy ảnh phù hợp).");
+        return;
       } catch (error) {
-        console.warn("Không nhúng được ảnh vào báo cáo kiểm tra vật tư:", error);
+        console.error("Nhúng ảnh thất bại, chuyển sang xuất file thường:", error);
+      }
+      try {
         writeWorkbookXlsx(workbook, filename);
-        showToast("Đã xuất báo cáo kiểm tra vật tư thành 2 sheet nhưng chưa nhúng được ảnh.");
+        showToast("Đã xuất báo cáo kiểm tra vật tư (bản không ảnh).");
+      } catch (fallbackError) {
+        console.error("Xuất báo cáo kiểm tra vật tư thất bại hoàn toàn:", fallbackError);
+        showToast(`Lỗi xuất file: ${fallbackError?.message || fallbackError}. Mở F12 → Console gửi tôi dòng lỗi đỏ.`);
       }
     }
 
@@ -11821,15 +11943,14 @@
 
     async function fetchImageForWorkbook(imageUrl, fallbackName) {
       if (!imageUrl) return null;
+      // Ưu tiên ảnh nhúng sẵn (base64) và dùng TRỰC TIẾP bytes gốc: không tải qua mạng, không vẽ lại canvas/PNG.
+      // Đây là nguồn chính gây chậm/treo và phình file trước đây; dùng thẳng ảnh gốc nên nhanh hơn rất nhiều.
+      const bundledImage = getBundledWorkbookImage(imageUrl, fallbackName);
+      if (bundledImage) return bundledImage;
+      // Không có sẵn mới thử tải: đường dẫn trực tiếp -> link raw GitHub -> cuối cùng vẽ qua canvas.
       const directImage = await tryFetchWorkbookImage(imageUrl, fallbackName);
       if (directImage) return directImage;
-      const bundledImage = getBundledWorkbookImage(imageUrl, fallbackName);
-      if (bundledImage) {
-        const normalizedImage = await loadImageForWorkbookViaCanvas(bundledImage.dataUrl, fallbackName);
-        return normalizedImage || bundledImage;
-      }
-      const remoteImageUrl = getWorkbookRemoteImageUrl(imageUrl);
-      const remoteImage = await tryFetchWorkbookImage(remoteImageUrl, fallbackName);
+      const remoteImage = await tryFetchWorkbookImage(getWorkbookRemoteImageUrl(imageUrl), fallbackName);
       if (remoteImage) return remoteImage;
       const canvasImage = await loadImageForWorkbookViaCanvas(imageUrl, fallbackName);
       if (!canvasImage) console.warn("Không tải được ảnh Excel:", imageUrl);
@@ -11950,6 +12071,7 @@
       // Bộ nhớ đệm ảnh dùng chung cho CẢ workbook: mỗi ảnh (theo URL/mã) chỉ tải + giải mã + nhúng file 1 lần,
       // rồi mọi dòng dùng lại → nhanh hơn nhiều và file nhỏ hơn nhiều khi 1 mã PP xuất hiện ở nhiều dòng.
       const mediaCache = new Map();
+      let decodesSinceYield = 0;
       let contentTypes = stringFromUint8(entries.get("[Content_Types].xml"));
       contentTypes = ensureContentTypeDefault(contentTypes, "jpg", "image/jpeg");
       contentTypes = ensureContentTypeDefault(contentTypes, "jpeg", "image/jpeg");
@@ -11994,6 +12116,8 @@
                 media = null;
               }
               mediaCache.set(cacheKey, media);
+              // Nhường luồng chính sau mỗi ~20 ảnh mới giải mã để trình duyệt không bị đơ/treo khi xuất nhiều ảnh.
+              if (++decodesSinceYield >= 20) { decodesSinceYield = 0; await new Promise((resolve) => setTimeout(resolve, 0)); }
             }
             if (!media) continue;
             drawingImages.push({ ...anchor, mediaName: media.mediaName, contentType: media.contentType });
@@ -12154,7 +12278,7 @@
         ["BÁO CÁO SHEET 4 - BOM STANDARD"],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
         [],
-        ["Hình ảnh sản phẩm / Product image", "Mã sản phẩm / Product code", "Tên sản phẩm / Product name", "Nguyên liệu / Material", "Kích thước SP / Product size", "Kích thước đóng gói / Packing size", "CBM", "NW", "GW", "Trạng thái / Status", "Số dòng BOM / BOM lines"]
+        ["Hình ảnh sản phẩm / Product image", "Mã sản phẩm / Product code", "Part Number / Part number", "Tên sản phẩm / Product name", "Nguyên liệu / Material", "Kích thước SP / Product size", "Kích thước đóng gói / Packing size", "CBM", "NW", "GW", "Trạng thái / Status", "Số dòng BOM / BOM lines"]
       ];
 
       products.forEach((product) => {
@@ -12162,6 +12286,7 @@
         summaryRows.push([
           "",
           detail.code || product.code,
+          detail.partNumber || product.partNumber || "",
           detail.name || product.name || "",
           detail.material || "",
           [detail.productL, detail.productW, detail.productH].filter(Boolean).join(" x "),
@@ -12177,12 +12302,12 @@
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
       const summaryImageAnchors = [];
       summarySheet["!cols"] = [
-        { wch: 20 }, { wch: 24 }, { wch: 34 }, { wch: 20 }, { wch: 24 },
+        { wch: 20 }, { wch: 24 }, { wch: 22 }, { wch: 34 }, { wch: 20 }, { wch: 24 },
         { wch: 24 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 14 }
       ];
       summarySheet["!rows"] = summaryRows.map((_, rowIndex) => rowIndex >= 4 ? { hpt: 76 } : {});
-      summarySheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
-      summarySheet["!autofilter"] = { ref: `A4:K${summaryRows.length}` };
+      summarySheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }];
+      summarySheet["!autofilter"] = { ref: `A4:L${summaryRows.length}` };
       products.forEach((product, productOffset) => {
         const productCode = product.detail.code || product.code;
         const detailSheetName = detailSheetNames.get(product.code);
@@ -12227,6 +12352,7 @@
         const rows = [
           [`BÁO CÁO BOM / BOM REPORT: ${detail.code || product.code}`],
           ["Mã sản phẩm / Product code", detail.code || product.code],
+          ["Part Number / Part number", detail.partNumber || product.partNumber || ""],
           ["Tên sản phẩm / Product name", detail.name || product.name || ""],
           ["Hình ảnh sản phẩm / Product image", ""],
           ["Nguyên liệu / Material", detail.material || ""],
@@ -12249,13 +12375,13 @@
           { wch: 20 }, { wch: 34 }, { wch: 22 }, { wch: 22 }, { wch: 14 },
           { wch: 20 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 18 }
         ];
-        worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex === 3 || rowIndex >= 14 ? { hpt: 76 } : {});
+        worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex === 4 || rowIndex >= 15 ? { hpt: 76 } : {});
         worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: bomHeaders.length - 1 } }];
-        worksheet["!autofilter"] = { ref: `A14:J${rows.length}` };
+        worksheet["!autofilter"] = { ref: `A15:J${rows.length}` };
         const productImageUrl = getProductPreviewExcelUrl(detail.code || product.code);
         if (productImageUrl) {
           imageAnchors.push({
-            row: 3,
+            row: 4,
             col: 1,
             imageUrl: productImageUrl,
             name: detail.code || product.code || product.name || "Product image"
@@ -12266,7 +12392,7 @@
           const imageUrl = getHardwarePreviewExcelUrl(ppCode);
           if (!imageUrl) return;
           imageAnchors.push({
-            row: itemOffset + 14,
+            row: itemOffset + 15,
             col: 0,
             imageUrl,
             name: ppCode || getSheet2RowText(row, 2) || getSheet2RowText(row, 1) || "Preview"
@@ -14129,6 +14255,10 @@
       toggleBtn.style.background = isOpen ? "var(--blue)" : "";
       toggleBtn.style.color = isOpen ? "#ffffff" : "";
       updateSheet5FilterToolbarVisibility();
+    });
+
+    document.getElementById("sheet5PurchaseReportBtn")?.addEventListener("click", () => {
+      exportNextProductionPurchaseReport();
     });
 
     // === SHEET 5 (ORDER MANAGEMENT) CARD & TABLES DYNAMIC ACTIONS ===
@@ -16348,6 +16478,7 @@
   </script>
 </body>
 </html>
+
 
 
 
