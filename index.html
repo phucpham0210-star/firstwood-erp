@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260713081707"></script>
-  <script src="preview-images-data.js?v=20260713081707"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260715090355"></script>
+  <script src="preview-images-data.js?v=20260715090355"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -11947,6 +11947,9 @@
       let drawingIndex = 1;
       let mediaIndex = 1;
       let insertedImageCount = 0;
+      // Bộ nhớ đệm ảnh dùng chung cho CẢ workbook: mỗi ảnh (theo URL/mã) chỉ tải + giải mã + nhúng file 1 lần,
+      // rồi mọi dòng dùng lại → nhanh hơn nhiều và file nhỏ hơn nhiều khi 1 mã PP xuất hiện ở nhiều dòng.
+      const mediaCache = new Map();
       let contentTypes = stringFromUint8(entries.get("[Content_Types].xml"));
       contentTypes = ensureContentTypeDefault(contentTypes, "jpg", "image/jpeg");
       contentTypes = ensureContentTypeDefault(contentTypes, "jpeg", "image/jpeg");
@@ -11976,12 +11979,24 @@
         if (anchors.length) {
           const drawingImages = [];
           for (const anchor of anchors) {
-            const image = await fetchImageForWorkbook(anchor.imageUrl, anchor.name);
-            if (!image) continue;
-            const mediaName = `image${mediaIndex}.${image.extension}`;
-            mediaIndex += 1;
-            entries.set(`xl/media/${mediaName}`, image.bytes);
-            drawingImages.push({ ...anchor, mediaName, contentType: image.contentType });
+            const cacheKey = anchor.imageUrl || "";
+            let media;
+            if (mediaCache.has(cacheKey)) {
+              media = mediaCache.get(cacheKey);
+            } else {
+              const image = await fetchImageForWorkbook(anchor.imageUrl, anchor.name);
+              if (image) {
+                const mediaName = `image${mediaIndex}.${image.extension}`;
+                mediaIndex += 1;
+                entries.set(`xl/media/${mediaName}`, image.bytes);
+                media = { mediaName, contentType: image.contentType };
+              } else {
+                media = null;
+              }
+              mediaCache.set(cacheKey, media);
+            }
+            if (!media) continue;
+            drawingImages.push({ ...anchor, mediaName: media.mediaName, contentType: media.contentType });
           }
           if (drawingImages.length) {
             const drawingName = `drawing${drawingIndex}.xml`;
@@ -12412,8 +12427,9 @@
         ]);
     }
 
-    function appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup) {
+    function appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup, sheetImageAnchors) {
       const headers = [
+        "Hình ảnh / Preview",
         "Tên hàng / Item name",
         "Mã phần cứng FW / FW hardware code",
         "Mã phần cứng PP / PP hardware code",
@@ -12428,23 +12444,33 @@
         "Invoice liên quan / Related invoices"
       ];
       const stockRows = getSheet3StockSummaryRows(selectedShipments, hardwareLookup);
+      const headerRowIndex = 4;
       const rows = [
         ["TỔNG TỒN KHO SAU NHẬN / STOCK AFTER RECEIVING"],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
         [`Số lô đã chọn / Selected shipments: ${selectedShipments.length}`],
         [],
         headers,
-        ...stockRows
+        ...stockRows.map((row) => ["", ...row])
       ];
       const worksheet = XLSX.utils.aoa_to_sheet(rows);
       worksheet["!cols"] = [
-        { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 24 },
+        { wch: 16 }, { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 24 },
         { wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 18 },
         { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 42 }
       ];
+      worksheet["!rows"] = rows.map((_, rowIndex) => rowIndex > headerRowIndex ? { hpt: 76 } : {});
       worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }];
-      worksheet["!autofilter"] = { ref: `A5:L${rows.length}` };
+      worksheet["!autofilter"] = { ref: `A5:${XLSX.utils.encode_col(headers.length - 1)}${rows.length}` };
       XLSX.utils.book_append_sheet(workbook, worksheet, "Tong ton sau nhan");
+
+      // Ảnh preview cho từng dòng tồn kho. Mã PP nằm ở cột index 2 của dữ liệu gốc (tên=0, fw=1, pp=2).
+      const imageAnchors = [];
+      stockRows.forEach((row, i) => {
+        const url = getHardwarePreviewExcelUrl(row[2]);
+        if (url) imageAnchors.push({ row: headerRowIndex + 1 + i, col: 0, imageUrl: url, name: row[2] || row[0] || "Preview" });
+      });
+      if (imageAnchors.length && sheetImageAnchors) sheetImageAnchors.set("Tong ton sau nhan", imageAnchors);
     }
 
     async function exportSheet3ImportWorkbook(selectedIndexes = importShipments.map((_, index) => index), options = {}) {
@@ -12538,7 +12564,7 @@
 
       if (options.includeStockSummary) {
         try {
-          appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup);
+          appendSheet3StockSummarySheet(workbook, selectedShipments, hardwareLookup, sheetImageAnchors);
         } catch (error) {
           console.warn("Không tạo được sheet tổng tồn kho sau nhận:", error);
           showToast("Sheet tổng tồn kho bị lỗi tính toán, file vẫn xuất các lô hàng đã chọn.");
@@ -16322,6 +16348,7 @@
   </script>
 </body>
 </html>
+
 
 
 
