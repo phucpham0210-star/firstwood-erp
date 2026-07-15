@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260716061610"></script>
-  <script src="preview-images-data.js?v=20260716061610"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260716063241"></script>
+  <script src="preview-images-data.js?v=20260716063241"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -3731,6 +3731,7 @@
           <button class="mini-action danger viewer-allowed" id="orderCheckPpFilterClear" type="button">Xóa lọc<span>Reset</span></button>
         </div>
         <datalist id="orderCheckPpFilterList"></datalist>
+        <div id="orderCheckShipBreakdown" class="is-hidden" style="margin: 0 16px 16px;"></div>
         <div class="table-shell compact" style="margin: 0; border-left: 0; border-right: 0; background: transparent;">
           <div class="table-wrap">
             <table id="orderCheckResultTable">
@@ -9823,6 +9824,155 @@
       return buildOrderCheckRowsFromItems(checkItems, { excludeWoNos: Array.from(targetSet) });
     }
 
+    // Tách nhu cầu phần cứng theo TỪNG lệnh sản xuất đang chọn, sắp theo ngày xuất hàng (lệnh đầu -> lệnh sau).
+    // Trả về null nếu không phải ngữ cảnh lệnh sản xuất hoặc chỉ chọn 1 lệnh (khi đó không cần tách).
+    function buildWorkOrderShipBreakdown() {
+      if (orderCheckContext.type !== "workOrder") return null;
+      const selected = getSelectedWorkOrderCheckWoNos();
+      const activeKey = String(orderCheckContext.workOrderNo || "").trim().toLowerCase();
+      const targetSet = (selected && selected.size) ? selected : new Set([activeKey]);
+      if (targetSet.size < 2) return null;
+
+      const bomLines = getOrderCheckBomLines();
+      const hardwareCatalog = getHardwareCatalog();
+      const hardwareMap = new Map();
+      hardwareCatalog.forEach((item) => {
+        const groupKey = getOrderCheckGroupKey(item);
+        if (groupKey && !hardwareMap.has(groupKey)) hardwareMap.set(groupKey, item);
+      });
+
+      // Thông tin từng lệnh (số + ngày xuất) rồi sắp theo ngày xuất (trống -> xếp cuối).
+      const infoMap = new Map();
+      productionAllocations.forEach((item) => {
+        const woNo = String(item.woNo || "").trim();
+        const key = woNo.toLowerCase();
+        if (!woNo || !targetSet.has(key)) return;
+        if (!infoMap.has(key)) infoMap.set(key, { woNo, key, shipDate: "" });
+        if (item.shipDate && !infoMap.get(key).shipDate) infoMap.get(key).shipDate = String(item.shipDate).trim();
+      });
+      targetSet.forEach((key) => {
+        if (!infoMap.has(key)) infoMap.set(key, { woNo: key, key, shipDate: "" });
+      });
+      const workOrders = Array.from(infoMap.values()).sort((a, b) => {
+        const da = a.shipDate || "9999-12-31";
+        const db = b.shipDate || "9999-12-31";
+        if (da !== db) return da < db ? -1 : 1;
+        return a.woNo.localeCompare(b.woNo, "vi", { sensitivity: "base" });
+      });
+
+      // Nhu cầu gộp (gross) theo mã phần cứng cho từng lệnh (nhất quán với cột "SL trong lệnh sản xuất").
+      const demandByWo = new Map();
+      workOrders.forEach((wo) => demandByWo.set(wo.key, new Map()));
+      const rowMeta = new Map();
+      productionAllocations.forEach((item) => {
+        if (item.isHeader) return;
+        const key = String(item.woNo || "").trim().toLowerCase();
+        if (!demandByWo.has(key)) return;
+        const productCode = String(item.productCode || "").trim().toLowerCase();
+        const qty = Number(item.qty) || 0;
+        if (!productCode || qty <= 0) return;
+        bomLines.filter((line) => line.parent.toLowerCase() === productCode).forEach((bom) => {
+          const groupKey = getOrderCheckGroupKey(bom);
+          if (!groupKey) return;
+          const need = qty * (Number(bom.qty) || 0);
+          if (need <= 0) return;
+          demandByWo.get(key).set(groupKey, (demandByWo.get(key).get(groupKey) || 0) + need);
+          if (!rowMeta.has(groupKey)) {
+            const master = hardwareMap.get(groupKey) || {};
+            rowMeta.set(groupKey, {
+              groupKey,
+              pp: master.pp || bom.pp || "-",
+              fw: master.fw || bom.fw || "-",
+              name: master.name || bom.name || "-",
+              uom: normalizeDownstreamUom(master.uom || bom.uom || "-")
+            });
+          }
+        });
+      });
+
+      // Tồn kho khả dụng: KHÔNG trừ phần giữ cho chính các lệnh đang đối chiếu.
+      const availableMap = getOrderCheckAvailableMap(bomLines, { excludeWoNos: Array.from(targetSet) });
+
+      const rows = Array.from(rowMeta.values()).map((meta) => {
+        const perWo = workOrders.map((wo) => Math.round(Number(demandByWo.get(wo.key).get(meta.groupKey)) || 0));
+        const total = perWo.reduce((sum, n) => sum + n, 0);
+        const stock = Math.round(Number(availableMap.get(meta.groupKey)) || 0);
+        const supplement = Math.max(0, total - stock);
+        return { ...meta, perWo, total, stock, supplement };
+      }).filter((row) => row.total > 0);
+
+      rows.sort((a, b) => {
+        if (b.supplement !== a.supplement) return b.supplement - a.supplement;
+        return String(a.pp || a.fw || a.name).localeCompare(String(b.pp || b.fw || b.name), "vi", { sensitivity: "base" });
+      });
+
+      return { workOrders, rows };
+    }
+
+    // Nhãn thứ tự lệnh: 2 lệnh -> "Lệnh đầu"/"Lệnh sau"; nhiều hơn -> "Lệnh 1", "Lệnh 2", ...
+    function getShipBreakdownOrderLabel(index, total) {
+      if (total === 2) return index === 0 ? "Lệnh đầu" : "Lệnh sau";
+      return `Lệnh ${index + 1}`;
+    }
+
+    function renderWorkOrderShipBreakdown() {
+      const container = document.getElementById("orderCheckShipBreakdown");
+      if (!container) return;
+      const data = buildWorkOrderShipBreakdown();
+      if (!data || !data.rows.length) {
+        container.classList.add("is-hidden");
+        container.innerHTML = "";
+        return;
+      }
+      const { workOrders } = data;
+      const rows = data.rows.filter(orderCheckRowMatchesPpFilter);
+      if (!rows.length) {
+        container.classList.add("is-hidden");
+        container.innerHTML = "";
+        return;
+      }
+      const woHeaders = workOrders.map((wo, i) => `
+        <th style="text-align:right;">${escapeAccountHtml(wo.woNo)}<span style="display:block; font-weight:600; color:var(--muted);">${getShipBreakdownOrderLabel(i, workOrders.length)} • ${escapeAccountHtml(formatShipDateDisplay(wo.shipDate))}</span></th>`).join("");
+      const bodyHtml = rows.map((row) => {
+        const perWoCells = row.perWo.map((qty) => `<td style="text-align:right; font-weight:800;">${qty.toLocaleString()}</td>`).join("");
+        return `<tr>
+          <td>${renderHardwarePreviewBox(row.pp)}</td>
+          <td style="font-weight:800;">${escapeAccountHtml(row.pp)}</td>
+          <td>${escapeAccountHtml(row.name)}</td>
+          <td>${escapeAccountHtml(row.uom)}</td>
+          ${perWoCells}
+          <td style="text-align:right; font-weight:900; color:#ffffff;">${row.total.toLocaleString()}</td>
+          <td style="text-align:right;">${row.stock.toLocaleString()}</td>
+          <td style="text-align:right;">${row.supplement > 0 ? `<span class="badge red">${row.supplement.toLocaleString()}</span>` : `<span class="badge green">0</span>`}</td>
+        </tr>`;
+      }).join("");
+      container.innerHTML = `
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+          <span style="font-size:13px; font-weight:900; color:#ffd166;">Tách nhu cầu phần cứng theo lệnh sản xuất</span>
+          <span style="font-size:11px; font-weight:700; color:var(--muted);">Sắp theo ngày xuất hàng • Tồn kho & Cần bổ sung tính trên tổng nhu cầu</span>
+        </div>
+        <div class="table-shell compact" style="margin:0; border-radius:10px; overflow:hidden;">
+          <div class="table-wrap">
+            <table style="min-width:100%;">
+              <thead>
+                <tr>
+                  <th>Hình ảnh<span>Preview</span></th>
+                  <th>Mã PP<span>PP code</span></th>
+                  <th>Tên hàng<span>Item name</span></th>
+                  <th>ĐVT<span>UOM</span></th>
+                  ${woHeaders}
+                  <th style="text-align:right;">Tổng cần<span>Total need</span></th>
+                  <th style="text-align:right;">Tồn kho<span>Stock</span></th>
+                  <th style="text-align:right;">Cần bổ sung<span>To order</span></th>
+                </tr>
+              </thead>
+              <tbody>${bodyHtml}</tbody>
+            </table>
+          </div>
+        </div>`;
+      container.classList.remove("is-hidden");
+    }
+
     // Gộp phần sản xuất CÒN LẠI (chưa xuất) -> danh sách vật tư cộng dồn (mỗi mã 1 dòng): required / available / shortage.
     // Bỏ dòng nháp và các phân bổ đã "Đã xuất" (đã sản xuất/giao xong) để chỉ tính nhu cầu cho phần còn phải làm.
     function buildAllWorkOrdersPurchaseRows() {
@@ -9964,6 +10114,7 @@
       const tbody = document.getElementById("orderCheckResultBody");
       if (!tbody) return;
       syncOrderCheckViewSwitch();
+      renderWorkOrderShipBreakdown();
       const detailRows = orderCheckContext.type === "workOrder"
         ? buildWorkOrderCheckRows(orderCheckContext.workOrderNo)
         : buildOrderCheckRows(getSelectedOrderCheckIndexes());
@@ -10212,6 +10363,86 @@
       };
     }
 
+    // Sheet Excel "Tách theo lệnh": mỗi mã phần cứng 1 dòng, có cột nhu cầu cho từng lệnh (theo ngày xuất),
+    // kèm Tổng cần / Tồn kho / Cần bổ sung. Trả về null nếu không đủ điều kiện (không phải lệnh SX hoặc <2 lệnh).
+    function buildWorkOrderShipBreakdownSheet() {
+      const data = buildWorkOrderShipBreakdown();
+      if (!data || !data.rows.length) return null;
+      const { workOrders } = data;
+      // Áp dụng cùng bộ lọc mã PP như bảng trên màn hình để nhất quán.
+      const rows = data.rows.filter(orderCheckRowMatchesPpFilter);
+      if (!rows.length) return null;
+
+      const woHeaderLabels = workOrders.map((wo, i) =>
+        `${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)})`);
+      const headers = [
+        "Hình ảnh / Preview",
+        "Mã phần cứng PP / PP code",
+        "Tên hàng / Item name",
+        "Đơn vị / UOM",
+        ...woHeaderLabels,
+        "Tổng cần / Total need",
+        "Tồn kho khả dụng / Stock",
+        "Cần bổ sung / To order"
+      ];
+      const COL_COUNT = headers.length;
+      const LAST_COL = COL_COUNT - 1;
+
+      const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
+      const aoa = [
+        ["BÁO CÁO TÁCH NHU CẦU THEO LỆNH SẢN XUẤT / DEMAND SPLIT BY WORK ORDER"],
+        [contextLabel],
+        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        ["Sắp theo ngày xuất hàng • Tồn kho & Cần bổ sung tính trên tổng nhu cầu / Sorted by ship date"],
+        headers
+      ];
+      const headerRowIndex = 4;
+      const merges = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: LAST_COL } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: LAST_COL } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: LAST_COL } },
+        { s: { r: 3, c: 0 }, e: { r: 3, c: LAST_COL } }
+      ];
+      const imageAnchors = [];
+      const dataRowIndices = [];
+      const rowHeights = { [headerRowIndex]: 30 };
+
+      rows.forEach((row) => {
+        const rowIndex = aoa.length;
+        const pp = row.pp && row.pp !== "-" ? row.pp : (row.fw || "-");
+        aoa.push(["", pp, row.name || "-", normalizeDownstreamUom(row.uom || "-"), ...row.perWo, row.total, row.stock, row.supplement]);
+        dataRowIndices.push(rowIndex);
+        rowHeights[rowIndex] = 76;
+        const url = getHardwarePreviewExcelUrl(pp);
+        if (url) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: url, name: pp || row.name || "Preview" });
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      const woCols = workOrders.map(() => ({ wch: 18 }));
+      worksheet["!cols"] = [
+        { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 },
+        ...woCols,
+        { wch: 16 }, { wch: 18 }, { wch: 16 }
+      ];
+      worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
+      worksheet["!merges"] = merges;
+      worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${XLSX.utils.encode_col(LAST_COL)}${aoa.length}` };
+
+      return {
+        worksheet,
+        imageAnchors,
+        styleSpec: {
+          columns: COL_COUNT,
+          titleRows: [0, 1, 2, 3],
+          headerRow: headerRowIndex,
+          bannerRows: [],
+          dataRows: dataRowIndices,
+          wrapCells: []
+        },
+        itemCount: rows.length
+      };
+    }
+
     async function exportOrderCheckReport() {
       if (typeof XLSX === "undefined") {
         showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
@@ -10228,6 +10459,20 @@
       ];
       let totalItemCount = 0;
       let sheetCount = 0;
+      // Sheet "Tách theo lệnh" (đầu tiên) — chỉ có khi ngữ cảnh lệnh sản xuất & chọn >=2 lệnh.
+      try {
+        const breakdownResult = buildWorkOrderShipBreakdownSheet();
+        if (breakdownResult) {
+          const name = "Tach theo lenh";
+          totalItemCount += breakdownResult.itemCount;
+          XLSX.utils.book_append_sheet(workbook, breakdownResult.worksheet, name);
+          imageAnchorsBySheet.set(name, breakdownResult.imageAnchors);
+          if (breakdownResult.styleSpec) reportStylesBySheet.set(name, breakdownResult.styleSpec);
+          sheetCount += 1;
+        }
+      } catch (breakdownError) {
+        console.error("Lỗi khi dựng sheet 'Tach theo lenh':", breakdownError);
+      }
       try {
         exportSheets.forEach(({ mode, name }) => {
           // Dựng từng sheet trong try riêng: một sheet lỗi cũng không làm hỏng cả lần xuất.
@@ -10277,6 +10522,13 @@
       }
     }
 
+    // Hiển thị ngày xuất hàng dạng dd/mm/yyyy (nhận vào "yyyy-mm-dd"); trống -> "—".
+    function formatShipDateDisplay(value) {
+      const s = String(value || "").trim();
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : (s || "—");
+    }
+
     function getWorkOrderSummaries() {
       const map = new Map();
       productionAllocations.forEach((item) => {
@@ -10289,13 +10541,15 @@
             statuses: new Set(),
             itemCount: 0,
             qty: 0,
-            totalCbm: 0
+            totalCbm: 0,
+            shipDate: ""
           });
         }
         const summary = map.get(item.woNo);
         if (item.customer) summary.customers.add(item.customer);
         if (item.address) summary.addresses.add(item.address);
         if (item.status) summary.statuses.add(item.status);
+        if (item.shipDate && !summary.shipDate) summary.shipDate = String(item.shipDate).trim();
         getAllocationLines(item).forEach(line => summary.orderNos.add(`${line.orderNo}: ${line.qty.toLocaleString()}`));
         if (!item.isHeader) {
           summary.itemCount += 1;
@@ -14404,6 +14658,10 @@
             <input class="bom-inline-input" style="width:100%; margin-top:6px;" id="newWorkOrderCustomerCard" list="sheet5CustomerList" placeholder="Khách hàng...">
             <input class="bom-inline-input" style="width:100%; margin-top:6px;" id="newWorkOrderAddressCard" placeholder="Địa chỉ giao hàng...">
             <input class="bom-inline-input" style="width:100%; margin-top:6px;" id="newWorkOrderStatusCard" list="sheet5WorkOrderStatusList" value="Nháp" placeholder="Trạng thái..." onclick="this.showPicker && this.showPicker()" onfocus="this.showPicker && this.showPicker()">
+            <div class="mini-label" style="display:flex; flex-direction:column; gap:2px; margin-top:6px;">
+              Ngày xuất hàng:
+              <input type="date" class="bom-inline-input" style="width:100%" id="newWorkOrderShipDateCard">
+            </div>
             <div style="display:flex; gap:6px; margin-top:10px; z-index:20;">
               <button class="mini-action primary" onclick="createNewWorkOrderCard(event)">Tạo</button>
               <button class="mini-action" onclick="isBlankWorkOrderActive=false; renderOrderCards(); renderOrderItemsTable(); event.stopPropagation();">Hủy</button>
@@ -14430,6 +14688,8 @@
           const customerText = Array.from(workOrder.customers).join(", ") || "-";
           const addressText = Array.from(workOrder.addresses).join(", ") || "-";
           const statusText = Array.from(workOrder.statuses || [])[0] || "Nháp";
+          const shipDateValue = workOrder.shipDate || "";
+          const shipDateText = formatShipDateDisplay(shipDateValue);
           const isActive = workOrder.woNo === activeWorkOrderNo && !isBlankOrderActive && !isBlankWorkOrderActive;
           const card = document.createElement("article");
           card.className = "mini-card order-card" + (isActive ? " active" : "");
@@ -14449,6 +14709,10 @@
             <div class="shipment-meta-item" style="margin-top:8px;">
               <span>${uiText("Total order CBM", "Tổng CBM đơn hàng")}</span>
               <div style="margin-top:2px; font-size:13px; font-weight:900; color:#62a2ff;">${formatTotalCbm(workOrder.totalCbm)} m³</div>
+            </div>
+            <div class="shipment-meta-item" style="margin-top:8px;">
+              <span>${uiText("Ship date", "Ngày xuất hàng")}</span>
+              <div style="margin-top:2px; font-size:13px; font-weight:900; color:#ffd166;">${shipDateText}</div>
             </div>
             <div class="shipment-meta-item" style="margin-top:8px;">
               <span>${uiText("Status", "Trạng thái")}</span>
@@ -14472,6 +14736,10 @@
               <input class="bom-inline-input" style="width:100%; margin-top:6px;" id="editWorkOrderCustomerCard-${workOrder.woNo}" list="sheet5CustomerList" value="${customerText === "-" ? "" : customerText}" placeholder="Khách hàng...">
               <input class="bom-inline-input" style="width:100%; margin-top:6px;" id="editWorkOrderAddressCard-${workOrder.woNo}" value="${addressText === "-" ? "" : addressText}" placeholder="Địa chỉ giao hàng...">
               <input class="bom-inline-input" style="width:100%; margin-top:6px;" id="editWorkOrderStatusCard-${workOrder.woNo}" list="sheet5WorkOrderStatusList" value="${statusText}" placeholder="Trạng thái..." onclick="this.showPicker && this.showPicker()" onfocus="this.showPicker && this.showPicker()">
+              <div class="mini-label" style="display:flex; flex-direction:column; gap:2px; margin-top:6px;">
+                Ngày xuất hàng:
+                <input type="date" class="bom-inline-input" style="width:100%" id="editWorkOrderShipDateCard-${workOrder.woNo}" value="${shipDateValue}">
+              </div>
               <div style="display:flex; gap:6px; margin-top:10px; z-index:20;">
                 <button class="mini-action primary" onclick="saveWorkOrderCard('${workOrder.woNo}', event)">Lưu</button>
                 <button class="mini-action" onclick="editingWorkOrderNo=null; renderOrderCards(); event.stopPropagation();">Hủy</button>
@@ -14709,6 +14977,7 @@
       const newCustomer = document.getElementById(`editWorkOrderCustomerCard-${woNo}`)?.value.trim();
       const newAddress = document.getElementById(`editWorkOrderAddressCard-${woNo}`)?.value.trim();
       const newStatus = document.getElementById(`editWorkOrderStatusCard-${woNo}`)?.value.trim() || "Nháp";
+      const newShipDate = document.getElementById(`editWorkOrderShipDateCard-${woNo}`)?.value.trim() || "";
       if (!newWoNo) {
         showToast("Lỗi: Số lệnh sản xuất không được để trống!");
         return;
@@ -14726,6 +14995,7 @@
           item.customer = newCustomer || item.customer || "-";
           item.address = newAddress || item.address || "-";
           item.status = newStatus;
+          item.shipDate = newShipDate;
         }
       });
       activeWorkOrderNo = newWoNo;
@@ -15503,6 +15773,7 @@
       const customer = document.getElementById("newWorkOrderCustomerCard")?.value.trim();
       const address = document.getElementById("newWorkOrderAddressCard")?.value.trim();
       const status = document.getElementById("newWorkOrderStatusCard")?.value.trim() || "Nháp";
+      const shipDate = document.getElementById("newWorkOrderShipDateCard")?.value.trim() || "";
 
       if (!woNo) {
         showToast("Lỗi: Số lệnh sản xuất không được để trống!");
@@ -15523,6 +15794,7 @@
         qty: 0,
         uom: "PC",
         status,
+        shipDate,
         isHeader: true
       });
 
@@ -15574,7 +15846,9 @@
 
       const sourceOrder = getOrderByNo(allocationPlan.lines[0]?.orderNo) || salesOrders[activeOrderIndex] || {};
       const orderMeta = getProductMetaFromOrders(code);
-      const workOrderStatus = productionAllocations.find(item => item.woNo === woNo)?.status || "Đang sản xuất";
+      const existingWoItem = productionAllocations.find(item => item.woNo === woNo);
+      const workOrderStatus = existingWoItem?.status || "Đang sản xuất";
+      const workOrderShipDate = existingWoItem?.shipDate || "";
       autoAddNewProductToCatalog(code, name);
 
       productionAllocations.push({
@@ -15587,7 +15861,8 @@
         productName: name || orderMeta?.productName || `Sản phẩm ${code}`,
         qty,
         uom: uom || orderMeta?.uom || "PC",
-        status: workOrderStatus
+        status: workOrderStatus,
+        shipDate: workOrderShipDate
       });
 
       renderOrderItemsTable();
@@ -16541,6 +16816,7 @@
   </script>
 </body>
 </html>
+
 
 
 
