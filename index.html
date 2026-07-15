@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260715105210"></script>
-  <script src="preview-images-data.js?v=20260715105210"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260715124520"></script>
+  <script src="preview-images-data.js?v=20260715124520"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -9533,6 +9533,20 @@
       return availableMap;
     }
 
+    // Số lượng mỗi phần cứng đang NẰM TRONG các lệnh sản xuất (đã giữ để sản xuất), theo từng mã.
+    function getOrderCheckReservedMap(bomLines = getOrderCheckBomLines()) {
+      const reserved = new Map();
+      productionAllocations.filter(shouldReserveProductionAllocation).forEach(item => {
+        const productCode = String(item.productCode || "").trim().toLowerCase();
+        bomLines.filter(line => line.parent.toLowerCase() === productCode).forEach(bom => {
+          const groupKey = getOrderCheckGroupKey(bom);
+          if (!groupKey) return;
+          reserved.set(groupKey, (reserved.get(groupKey) || 0) + ((Number(item.qty) || 0) * (Number(bom.qty) || 0)));
+        });
+      });
+      return reserved;
+    }
+
     function getOrderCheckPriorityNumber(value, fallback = 1) {
       const priority = parseFloat(String(value || "").replace(",", ".").replace(/[^\d.]/g, ""));
       return Number.isFinite(priority) && priority > 0 ? priority : fallback;
@@ -9648,17 +9662,43 @@
       list.innerHTML = "";
       if (orderCheckContext.type === "workOrder") {
         const woNo = orderCheckContext.workOrderNo || "-";
-        const related = productionAllocations.filter(item => String(item.woNo || "") === String(woNo || ""));
-        const orderNos = [...new Set(related.flatMap(item => getAllocationLines(item).map(line => line.orderNo)).filter(Boolean))];
-        const itemCount = related.filter(item => !item.isHeader).length;
-        const qty = related.reduce((sum, item) => sum + (item.isHeader ? 0 : Number(item.qty) || 0), 0);
-        const label = document.createElement("label");
-        label.className = "check-row";
-        label.innerHTML = `
-          <input type="checkbox" checked disabled>
-          <span>${woNo} | ${orderNos.join(", ") || "Chưa liên kết đơn hàng"} | ${itemCount} dòng | ${qty.toLocaleString()} SL</span>
-        `;
-        list.appendChild(label);
+        const related = productionAllocations.filter(item => !item.isHeader && String(item.woNo || "") === String(woNo || ""));
+        const itemCount = related.length;
+        const totalQty = related.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+        // Dòng tiêu đề lệnh (không tích).
+        const woHead = document.createElement("div");
+        woHead.className = "check-row";
+        woHead.style.opacity = "0.8";
+        woHead.innerHTML = `<span><strong>Lệnh: ${escapeAccountHtml(woNo)}</strong> — ${itemCount} dòng | ${totalQty.toLocaleString()} SL</span>`;
+        list.appendChild(woHead);
+        // Gom số lượng theo từng ĐƠN HÀNG trong lệnh sản xuất, cho tích chọn nhiều/một đơn.
+        const perOrder = new Map();
+        related.forEach(item => {
+          getAllocationLines(item).forEach(line => {
+            const key = String(line.orderNo || "").trim();
+            if (!key) return;
+            if (!perOrder.has(key)) perOrder.set(key, { orderNo: key, qty: 0 });
+            perOrder.get(key).qty += Number(line.qty) || 0;
+          });
+        });
+        const orders = Array.from(perOrder.values());
+        if (!orders.length) {
+          const label = document.createElement("label");
+          label.className = "check-row";
+          label.innerHTML = `<input type="checkbox" checked disabled><span>Chưa liên kết đơn hàng</span>`;
+          list.appendChild(label);
+          return;
+        }
+        orders.forEach(o => {
+          const customer = getOrderByNo(o.orderNo)?.customer || "";
+          const label = document.createElement("label");
+          label.className = "check-row";
+          label.innerHTML = `
+            <input type="checkbox" data-wo-order="${escapeAccountHtml(o.orderNo)}" checked>
+            <span>${escapeAccountHtml(o.orderNo)}${customer ? ` | ${escapeAccountHtml(customer)}` : ""} | ${o.qty.toLocaleString()} SL</span>
+          `;
+          list.appendChild(label);
+        });
         return;
       }
       salesOrders.forEach((order, index) => {
@@ -9762,16 +9802,30 @@
       return buildOrderCheckRowsFromItems(checkItems);
     }
 
+    // Các đơn hàng đang được tích chọn trong modal đối chiếu lệnh sản xuất (null = chưa có ô nào -> lấy toàn bộ lệnh).
+    function getSelectedWorkOrderCheckOrderKeys() {
+      const boxes = Array.from(document.querySelectorAll("#orderCheckOrderList input[data-wo-order]"));
+      if (!boxes.length) return null;
+      return new Set(boxes.filter(b => b.checked).map(b => String(b.dataset.woOrder || "").trim().toLowerCase()));
+    }
+
     function buildWorkOrderCheckRows(woNo) {
       const targetWoNo = String(woNo || "").trim().toLowerCase();
+      const selectedOrders = getSelectedWorkOrderCheckOrderKeys();
       const checkItems = productionAllocations
         .filter(item => !item.isHeader && String(item.woNo || "").trim().toLowerCase() === targetWoNo)
-        .map(item => ({
-          productCode: item.productCode,
-          productName: item.productName,
-          qty: Number(item.qty) || 0,
-          uom: item.uom
-        }))
+        .map(item => {
+          // Nếu người dùng tích chọn theo đơn: chỉ cộng số lượng của các đơn được chọn.
+          const qty = selectedOrders
+            ? getAllocationLines(item).reduce((sum, line) => sum + (selectedOrders.has(String(line.orderNo || "").trim().toLowerCase()) ? (Number(line.qty) || 0) : 0), 0)
+            : (Number(item.qty) || 0);
+          return {
+            productCode: item.productCode,
+            productName: item.productName,
+            qty,
+            uom: item.uom
+          };
+        })
         .filter(item => item.productCode && item.qty > 0);
       return buildOrderCheckRowsFromItems(checkItems, { excludeWoNo: woNo });
     }
@@ -10038,11 +10092,12 @@
       renderOrderCheckResults();
       const bodyRows = Array.from(document.querySelectorAll("#orderCheckResultBody tr"));
       // Thứ tự cột báo cáo: bỏ 'Mã phần cứng FW', đưa 'Mã PP' lên trước 'Tên hàng'. 8 cột (A..H).
-      const COL_COUNT = 8;
+      const COL_COUNT = 9;
       const LAST_COL = COL_COUNT - 1;
       // Ánh xạ cột báo cáo -> chỉ số ô trên bảng màn hình (null = ô ảnh để trống).
       const SOURCE_CELL_INDEX = [null, 3, 1, 4, 5, 6, 7, 8];
       const ISSUE_COL = 3; // cột 'Thứ tự cấp' trong bố cục mới
+      const reservedMap = getOrderCheckReservedMap();
       const headers = [
         "Hình ảnh / Preview",
         "Mã phần cứng PP / PP hardware code",
@@ -10051,7 +10106,8 @@
         "Đơn vị / UOM",
         "Số lượng cần / Required qty",
         "Số lượng khả dụng / Available qty",
-        "Số lượng thiếu / Shortage qty"
+        "Số lượng thiếu / Shortage qty",
+        "SL trong lệnh sản xuất / In work orders"
       ];
       const contextLabel = orderCheckContext.type === "workOrder"
         ? `Lệnh sản xuất / Work order: ${orderCheckContext.workOrderNo || "-"}`
@@ -10113,6 +10169,10 @@
             breakdownLineCount = breakdown.length + 1;
           }
         }
+        // Cột "SL trong lệnh sản xuất": số phần cứng đang được giữ cho các lệnh sản xuất (theo mã của dòng).
+        const reservedRowPp = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
+        const reservedRowName = row.cells[1]?.innerText.replace(/\s+/g, " ").trim() || "";
+        values.push(Math.round(Number(reservedMap.get(getOrderCheckGroupKey({ pp: reservedRowPp, name: reservedRowName }))) || 0));
         rows.push(values);
         dataRowIndices.push(excelRowIndex);
         const ppCode = row.cells[3]?.innerText.replace(/\s+/g, " ").trim() || "";
@@ -10133,7 +10193,7 @@
       // Độ rộng cột: ảnh, Mã PP, Tên hàng, Thứ tự cấp, Đơn vị, SL cần, SL khả dụng, SL thiếu.
       worksheet["!cols"] = [
         { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 34 },
-        { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 16 }
+        { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 22 }
       ];
       const headerRowIndex = 4;
       rowHeights[headerRowIndex] = 30;
@@ -11928,8 +11988,11 @@
 
     async function tryFetchWorkbookImage(imageUrl, fallbackName) {
       if (!imageUrl) return null;
+      // Có timeout để không treo khi URL không phản hồi (mã không có ảnh, mạng chậm...).
+      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 3500) : null;
       try {
-        const response = await fetch(imageUrl, { cache: "no-store" });
+        const response = await fetch(imageUrl, { cache: "no-store", signal: controller?.signal });
         if (!response.ok) return null;
         const blob = await response.blob();
         const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -11938,6 +12001,8 @@
         return { bytes, contentType, extension, name: fallbackName };
       } catch (error) {
         return null;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
 
@@ -11947,14 +12012,13 @@
       // Đây là nguồn chính gây chậm/treo và phình file trước đây; dùng thẳng ảnh gốc nên nhanh hơn rất nhiều.
       const bundledImage = getBundledWorkbookImage(imageUrl, fallbackName);
       if (bundledImage) return bundledImage;
-      // Không có sẵn mới thử tải: đường dẫn trực tiếp -> link raw GitHub -> cuối cùng vẽ qua canvas.
+      // Không có sẵn thì thử tải qua mạng (đã có timeout). KHÔNG dùng canvas/<img> vì nạp ảnh qua URL không có timeout
+      // → nếu URL treo sẽ treo cả lần xuất. Mã không có ảnh (vd mã tạm) sẽ bỏ qua ảnh, file vẫn xuất bình thường.
       const directImage = await tryFetchWorkbookImage(imageUrl, fallbackName);
       if (directImage) return directImage;
       const remoteImage = await tryFetchWorkbookImage(getWorkbookRemoteImageUrl(imageUrl), fallbackName);
       if (remoteImage) return remoteImage;
-      const canvasImage = await loadImageForWorkbookViaCanvas(imageUrl, fallbackName);
-      if (!canvasImage) console.warn("Không tải được ảnh Excel:", imageUrl);
-      return canvasImage;
+      return null;
     }
 
     function setCellXmlStyle(cellXml, xfIndex) {
@@ -14233,6 +14297,10 @@
     document.getElementById("sheet5WoFilterResetBtn")?.addEventListener("click", resetSheet5Filters);
     document.getElementById("orderCheckRunBtn")?.addEventListener("click", renderOrderCheckResults);
     document.getElementById("orderCheckExportBtn")?.addEventListener("click", exportOrderCheckReport);
+    // Tích/bỏ tích đơn hàng (đơn lẻ hoặc trong lệnh sản xuất) -> đối chiếu lại ngay.
+    document.getElementById("orderCheckOrderList")?.addEventListener("change", (event) => {
+      if (event.target.matches("input[type='checkbox']")) refreshOpenOrderCheckResults();
+    });
     let orderCheckPpFilterTimer = null;
     document.getElementById("orderCheckPpFilter")?.addEventListener("input", (event) => {
       orderCheckPpFilterValue = event.target.value;
@@ -16478,6 +16546,7 @@
   </script>
 </body>
 </html>
+
 
 
 
