@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260716063241"></script>
-  <script src="preview-images-data.js?v=20260716063241"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260716143838"></script>
+  <script src="preview-images-data.js?v=20260716143838"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -9483,6 +9483,18 @@
       renderOrderCheckResults();
     }
 
+    // Ngày xuất hàng của từng lệnh sản xuất (lấy giá trị đầu tiên không rỗng), dùng để xếp ưu tiên.
+    function getWorkOrderShipDateMap() {
+      const map = new Map();
+      productionAllocations.forEach((item) => {
+        const key = String(item.woNo || "").trim().toLowerCase();
+        if (!key) return;
+        if (!map.has(key)) map.set(key, "");
+        if (item.shipDate && !map.get(key)) map.set(key, String(item.shipDate).trim());
+      });
+      return map;
+    }
+
     function getOrderCheckAvailableMap(bomLines = getOrderCheckBomLines(), options = {}) {
       const inboundTotals = {};
       const defectTotals = {};
@@ -9492,6 +9504,9 @@
       const excludeWoNoSet = Array.isArray(options.excludeWoNos)
         ? new Set(options.excludeWoNos.map(w => String(w || "").trim().toLowerCase()))
         : (options.excludeWoNos instanceof Set ? options.excludeWoNos : null);
+      // Ưu tiên theo ngày xuất: nếu có mốc này, CHỈ trừ phần giữ của các lệnh xuất SỚM HƠN mốc (ưu tiên cao hơn).
+      const priorityAnchorDate = options.priorityAnchorDate ? String(options.priorityAnchorDate) : null;
+      const shipDateMap = priorityAnchorDate ? getWorkOrderShipDateMap() : null;
 
       importShipments.forEach(shipment => {
         (shipment.items || []).forEach(item => {
@@ -9522,6 +9537,11 @@
         const woKey = String(item.woNo || "").trim().toLowerCase();
         if (excludeWoNo && woKey === excludeWoNo) return;
         if (excludeWoNoSet && excludeWoNoSet.has(woKey)) return;
+        if (priorityAnchorDate) {
+          // Lệnh không có ngày xuất -> coi như xuất muộn nhất (9999) nên không "ưu tiên hơn".
+          const wShip = (shipDateMap.get(woKey) || "") || "9999-12-31";
+          if (!(wShip < priorityAnchorDate)) return; // cùng ngày hoặc muộn hơn -> KHÔNG trừ
+        }
         const productCode = String(item.productCode || "").trim().toLowerCase();
         bomLines.filter(line => line.parent.toLowerCase() === productCode).forEach(bom => {
           const groupKey = getOrderCheckGroupKey(bom);
@@ -9656,6 +9676,63 @@
       return allocations;
     }
 
+    // Biến thể cho BẢNG TÁCH: mã thay thế được xài trước (bị giới hạn theo tồn nên KHÔNG bao giờ báo âm),
+    // mã chính xử lý CUỐI CÙNG nên GÁNH toàn bộ phần thiếu -> số âm (cần mua) dồn về mã chính.
+    function allocateOrderCheckDemandMainLast(bom, demandUnits, availableMap, catalog = getHardwareCatalog()) {
+      const rawOptions = getOrderCheckProductionOptions(bom, catalog);
+      const mainKey = getOrderCheckGroupKey(bom);
+      // Đưa nhóm chứa mã chính xuống CUỐI; mã thay thế giữ nguyên thứ tự ưu tiên và xử lý trước.
+      const subOptions = [];
+      const mainOptions = [];
+      rawOptions.forEach((opt) => {
+        const hasMain = opt.components.some((c) => (c.key || getOrderCheckGroupKey(c)) === mainKey || c.supplyType === "Mã chính");
+        (hasMain ? mainOptions : subOptions).push(opt);
+      });
+      const options = [...subOptions, ...mainOptions];
+      let remainingUnits = Number(demandUnits) || 0;
+      const allocations = [];
+
+      options.forEach((option, optionIndex) => {
+        const isLastOption = optionIndex === options.length - 1;
+        if (remainingUnits <= 0 && !isLastOption) return;
+        const components = option.components
+          .map((component) => ({
+            ...component,
+            qty: getOrderCheckComponentQty(component.qty, 1),
+            key: component.key || getOrderCheckGroupKey(component)
+          }))
+          .filter((component) => component.key && component.qty > 0);
+        if (!components.length) return;
+
+        const capacityUnits = components.reduce((capacity, component) => {
+          const availableQty = Math.max(0, Number(availableMap.get(component.key) || 0));
+          return Math.min(capacity, availableQty / component.qty);
+        }, Infinity);
+        // Mã chính (nhóm cuối) nhận toàn bộ phần còn lại kể cả vượt tồn -> âm dồn về mã chính.
+        const allocatedUnits = isLastOption
+          ? remainingUnits
+          : Math.min(remainingUnits, Math.max(0, capacityUnits));
+
+        if (allocatedUnits <= 0 && !isLastOption) return;
+        components.forEach((component) => {
+          const availableBefore = Number(availableMap.get(component.key)) || 0;
+          const requiredQty = allocatedUnits * component.qty;
+          const availableQty = Math.min(requiredQty, Math.max(0, availableBefore));
+          availableMap.set(component.key, availableBefore - requiredQty);
+          allocations.push({
+            ...component,
+            requiredQty,
+            availableQty,
+            shortageQty: requiredQty - availableQty,
+            priority: option.priority
+          });
+        });
+        remainingUnits -= allocatedUnits;
+      });
+
+      return allocations;
+    }
+
     function getSelectedOrderCheckIndexes() {
       return Array.from(document.querySelectorAll("#orderCheckOrderList input[type='checkbox']:checked"))
         .map(input => Number(input.value))
@@ -9782,8 +9859,29 @@
         });
       });
 
-      return Array.from(rows.values()).sort((a, b) => {
+      // Gom "chuỗi" = mã chính + các mã thay thế phục vụ nó (cùng sản phẩm + cùng mã chính gốc sourceMainPp).
+      // Tính tổng thiếu của cả chuỗi để đẩy chuỗi có thiếu lên trên; trong chuỗi, mã chính (ưu tiên nhỏ) nằm trên mã thay thế.
+      const rowList = Array.from(rows.values());
+      const chainAgg = new Map();
+      rowList.forEach((row) => {
+        const chainKey = `${String(row.productCode || "").toLowerCase()}|${String(row.sourceMainPp || "").toLowerCase()}`;
+        row.chainKey = chainKey;
+        if (!chainAgg.has(chainKey)) chainAgg.set(chainKey, { shortage: 0, minSeq: Infinity });
+        const agg = chainAgg.get(chainKey);
+        agg.shortage += Number(row.shortageQty) || 0;
+        agg.minSeq = Math.min(agg.minSeq, row.hardwareSequence);
+      });
+      return rowList.sort((a, b) => {
         if (a.productIndex !== b.productIndex) return a.productIndex - b.productIndex;
+        const ca = chainAgg.get(a.chainKey);
+        const cb = chainAgg.get(b.chainKey);
+        // Chuỗi đang thiếu -> đẩy lên trên cùng (trong từng sản phẩm); thiếu nhiều hơn -> trên trước.
+        const aHasShort = ca.shortage > 0 ? 1 : 0;
+        const bHasShort = cb.shortage > 0 ? 1 : 0;
+        if (aHasShort !== bHasShort) return bHasShort - aHasShort;
+        if (ca.shortage !== cb.shortage) return cb.shortage - ca.shortage;
+        if (ca.minSeq !== cb.minSeq) return ca.minSeq - cb.minSeq; // giữ các chuỗi tách bạch, ổn định
+        // Trong CÙNG một chuỗi: mã chính (ưu tiên 1) trên, mã thay thế (dùng sau) nằm dưới.
         if (a.priority !== b.priority) return a.priority - b.priority;
         return a.hardwareSequence - b.hardwareSequence;
       });
@@ -9820,8 +9918,14 @@
           uom: item.uom
         }))
         .filter(item => item.productCode && item.qty > 0);
-      // Tồn khả dụng KHÔNG trừ phần giữ cho chính các lệnh đang đối chiếu (tránh trừ 2 lần).
-      return buildOrderCheckRowsFromItems(checkItems, { excludeWoNos: Array.from(targetSet) });
+      // Ưu tiên theo ngày xuất: mốc = ngày xuất SỚM NHẤT trong các lệnh đang chọn.
+      // Tồn khả dụng = tồn thực − phần giữ của các lệnh KHÁC có ngày xuất sớm hơn mốc (không trừ chính các lệnh đang chọn).
+      const shipDateMap = getWorkOrderShipDateMap();
+      const priorityAnchorDate = Array.from(targetSet).reduce((min, key) => {
+        const d = (shipDateMap.get(key) || "") || "9999-12-31";
+        return d < min ? d : min;
+      }, "9999-12-31");
+      return buildOrderCheckRowsFromItems(checkItems, { excludeWoNos: Array.from(targetSet), priorityAnchorDate });
     }
 
     // Tách nhu cầu phần cứng theo TỪNG lệnh sản xuất đang chọn, sắp theo ngày xuất hàng (lệnh đầu -> lệnh sau).
@@ -9860,53 +9964,144 @@
         return a.woNo.localeCompare(b.woNo, "vi", { sensitivity: "base" });
       });
 
-      // Nhu cầu gộp (gross) theo mã phần cứng cho từng lệnh (nhất quán với cột "SL trong lệnh sản xuất").
-      const demandByWo = new Map();
-      workOrders.forEach((wo) => demandByWo.set(wo.key, new Map()));
-      const rowMeta = new Map();
+      // Danh sách sản phẩm (mã + SL) theo từng lệnh.
+      const itemsByWo = new Map();
+      workOrders.forEach((wo) => itemsByWo.set(wo.key, []));
       productionAllocations.forEach((item) => {
         if (item.isHeader) return;
         const key = String(item.woNo || "").trim().toLowerCase();
-        if (!demandByWo.has(key)) return;
-        const productCode = String(item.productCode || "").trim().toLowerCase();
+        if (!itemsByWo.has(key)) return;
+        const productCode = String(item.productCode || "").trim();
         const qty = Number(item.qty) || 0;
         if (!productCode || qty <= 0) return;
-        bomLines.filter((line) => line.parent.toLowerCase() === productCode).forEach((bom) => {
-          const groupKey = getOrderCheckGroupKey(bom);
-          if (!groupKey) return;
-          const need = qty * (Number(bom.qty) || 0);
-          if (need <= 0) return;
-          demandByWo.get(key).set(groupKey, (demandByWo.get(key).get(groupKey) || 0) + need);
-          if (!rowMeta.has(groupKey)) {
-            const master = hardwareMap.get(groupKey) || {};
-            rowMeta.set(groupKey, {
+        itemsByWo.get(key).push({ productCode, qty });
+      });
+
+      // Tồn kho khả dụng CHUNG (chỉ trừ lệnh KHÁC có ngày xuất sớm hơn mốc). Map này sẽ bị TRỪ DẦN theo thứ tự lệnh.
+      const priorityAnchorDate = (workOrders[0] && workOrders[0].shipDate) || "9999-12-31";
+      const availableMap = getOrderCheckAvailableMap(bomLines, { excludeWoNos: Array.from(targetSet), priorityAnchorDate });
+      const stockSnapshot = new Map(availableMap); // tồn gốc để hiển thị cột "Tồn kho"
+
+      // Phân bổ nhu cầu THEO THỨ TỰ lệnh (sớm -> muộn) qua cùng engine mã chính/mã thay thế như khi kiểm 1 lệnh.
+      // availableMap bị trừ dần nên lệnh gần nhất "ăn" tồn kho trước, lệnh sau chỉ thấy phần còn lại.
+      const rowData = new Map();
+      const ensureRow = (groupKey, sample) => {
+        if (!rowData.has(groupKey)) {
+          const master = hardwareMap.get(groupKey) || sample || {};
+          rowData.set(groupKey, {
+            meta: {
               groupKey,
-              pp: master.pp || bom.pp || "-",
-              fw: master.fw || bom.fw || "-",
-              name: master.name || bom.name || "-",
-              uom: normalizeDownstreamUom(master.uom || bom.uom || "-")
-            });
+              pp: master.pp || (sample && sample.pp) || "-",
+              fw: master.fw || (sample && sample.fw) || "-",
+              name: master.name || (sample && sample.name) || "-",
+              uom: normalizeDownstreamUom(master.uom || (sample && sample.uom) || "-")
+            },
+            perWo: new Map()
+          });
+        }
+        return rowData.get(groupKey);
+      };
+
+      // Chuỗi mã chính + mã thay thế: liệt kê cả mã thay thế dù không dùng, mã chính đứng trên.
+      const chainByMain = new Map();   // mainKey -> [memberKeys theo thứ tự ưu tiên: chính trước, phụ sau]
+      const memberToMain = new Map();  // memberKey -> mainKey
+      const chainSeqOf = new Map();    // mainKey -> thứ tự xuất hiện (ổn định)
+      let chainSeq = 0;
+      const registerChain = (bom) => {
+        const options = getOrderCheckProductionOptions(bom, hardwareCatalog);
+        // Mã chính = mã mà BOM tham chiếu (parent trong "Mã Phần Cứng Sản Xuất") -> LUÔN đứng đầu chuỗi,
+        // kể cả khi mã thay thế được đặt ưu tiên dùng trước. Mã thay thế xếp sau theo thứ tự ưu tiên.
+        const mainKey = getOrderCheckGroupKey(bom);
+        if (!mainKey) return;
+        const members = [mainKey];
+        ensureRow(mainKey, { pp: bom.pp, fw: bom.fw, name: bom.name, uom: bom.uom });
+        options.forEach((opt) => opt.components.forEach((comp) => {
+          const gk = comp.key || getOrderCheckGroupKey(comp);
+          if (gk && gk !== mainKey && !members.includes(gk)) {
+            members.push(gk);
+            ensureRow(gk, comp); // đăng ký cả mã thay thế chưa dùng để vẫn hiển thị
           }
+        }));
+        if (!chainByMain.has(mainKey)) {
+          chainByMain.set(mainKey, members.slice());
+          chainSeqOf.set(mainKey, chainSeq++);
+        } else {
+          const existing = chainByMain.get(mainKey);
+          members.forEach((k) => { if (!existing.includes(k)) existing.push(k); });
+        }
+        members.forEach((k) => { if (!memberToMain.has(k)) memberToMain.set(k, mainKey); });
+      };
+
+      workOrders.forEach((wo) => {
+        (itemsByWo.get(wo.key) || []).forEach((orderItem) => {
+          const productKey = orderItem.productCode.toLowerCase();
+          const orderQty = orderItem.qty;
+          bomLines.filter((line) => line.parent.toLowerCase() === productKey).forEach((bom) => {
+            const demandUnits = orderQty * (Number(bom.qty) || 0);
+            if (demandUnits <= 0) return;
+            registerChain(bom); // đảm bảo mã chính + mọi mã thay thế đều có mặt
+            // Mã thay thế xài trước & không báo âm; phần thiếu dồn về MÃ CHÍNH (số âm = cần mua).
+            const allocations = allocateOrderCheckDemandMainLast(bom, demandUnits, availableMap, hardwareCatalog);
+            allocations.forEach((allocation) => {
+              const groupKey = allocation.key || getOrderCheckGroupKey(allocation);
+              if (!groupKey) return;
+              const row = ensureRow(groupKey, allocation);
+              if (!row.perWo.has(wo.key)) row.perWo.set(wo.key, { need: 0, covered: 0, short: 0 });
+              const rec = row.perWo.get(wo.key);
+              rec.need += Number(allocation.requiredQty) || 0;
+              rec.covered += Number(allocation.availableQty) || 0;
+              rec.short += Number(allocation.shortageQty) || 0;
+            });
+          });
         });
       });
 
-      // Tồn kho khả dụng: KHÔNG trừ phần giữ cho chính các lệnh đang đối chiếu.
-      const availableMap = getOrderCheckAvailableMap(bomLines, { excludeWoNos: Array.from(targetSet) });
+      const buildDisplayRow = (groupKey) => {
+        const entry = rowData.get(groupKey);
+        const stock = Math.round(Number(stockSnapshot.get(groupKey)) || 0);
+        // Tồn dư chạy dồn: tồn kho trừ dần nhu cầu từng lệnh (theo thứ tự ngày xuất). Âm = thiếu cho lệnh đó trở đi.
+        let running = stock;
+        const perWo = workOrders.map((wo) => {
+          const rec = entry.perWo.get(wo.key) || { need: 0, covered: 0, short: 0 };
+          const need = Math.round(rec.need);
+          running -= need;
+          return { need, covered: Math.round(rec.covered), short: Math.round(rec.short), balanceAfter: running };
+        });
+        const total = perWo.reduce((sum, w) => sum + w.need, 0);
+        const totalShort = perWo.reduce((sum, w) => sum + w.short, 0);
+        const isSub = memberToMain.get(groupKey) !== groupKey;
+        return { ...entry.meta, stock, perWo, total, totalShort, isSub };
+      };
 
-      const rows = Array.from(rowMeta.values()).map((meta) => {
-        const perWo = workOrders.map((wo) => Math.round(Number(demandByWo.get(wo.key).get(meta.groupKey)) || 0));
-        const total = perWo.reduce((sum, n) => sum + n, 0);
-        const stock = Math.round(Number(availableMap.get(meta.groupKey)) || 0);
-        const supplement = Math.max(0, total - stock);
-        return { ...meta, perWo, total, stock, supplement };
-      }).filter((row) => row.total > 0);
+      // Ghép hàng theo từng CHUỖI (mã chính rồi tới mã thay thế), chuỗi có thiếu đẩy lên trên.
+      const chainList = Array.from(chainByMain.entries()).map(([mainKey, members]) => {
+        const memberRows = members.map(buildDisplayRow);
+        const chainShortage = memberRows.reduce((sum, r) => sum + r.totalShort, 0);
+        const chainNeed = memberRows.reduce((sum, r) => sum + r.total, 0);
+        return { mainKey, memberRows, chainShortage, chainNeed, seq: chainSeqOf.get(mainKey) };
+      }).filter((chain) => chain.chainNeed > 0);
+      chainList.sort((a, b) => {
+        const aShort = a.chainShortage > 0 ? 1 : 0;
+        const bShort = b.chainShortage > 0 ? 1 : 0;
+        if (aShort !== bShort) return bShort - aShort;
+        if (a.chainShortage !== b.chainShortage) return b.chainShortage - a.chainShortage;
+        return a.seq - b.seq;
+      });
+      const rows = [];
+      chainList.forEach((chain) => chain.memberRows.forEach((r) => rows.push(r)));
 
-      rows.sort((a, b) => {
-        if (b.supplement !== a.supplement) return b.supplement - a.supplement;
-        return String(a.pp || a.fw || a.name).localeCompare(String(b.pp || b.fw || b.name), "vi", { sensitivity: "base" });
+      // Tổng kết theo từng lệnh: bao nhiêu mã cần / bao nhiêu mã còn thiếu -> đủ để sản xuất hay chưa.
+      const woSummary = workOrders.map((wo, i) => {
+        let needCodes = 0;
+        let shortCodes = 0;
+        rows.forEach((row) => {
+          if (row.perWo[i].need > 0) needCodes += 1;
+          if (row.perWo[i].short > 0) shortCodes += 1;
+        });
+        return { ...wo, index: i, needCodes, shortCodes, complete: shortCodes === 0 };
       });
 
-      return { workOrders, rows };
+      return { workOrders, rows, woSummary };
     }
 
     // Nhãn thứ tự lệnh: 2 lệnh -> "Lệnh đầu"/"Lệnh sau"; nhiều hơn -> "Lệnh 1", "Lệnh 2", ...
@@ -9924,47 +10119,63 @@
         container.innerHTML = "";
         return;
       }
-      const { workOrders } = data;
+      const { workOrders, woSummary } = data;
       const rows = data.rows.filter(orderCheckRowMatchesPpFilter);
       if (!rows.length) {
         container.classList.add("is-hidden");
         container.innerHTML = "";
         return;
       }
+      // Dải tổng kết: mỗi lệnh đã đủ để sản xuất chưa, còn thiếu bao nhiêu mã.
+      const summaryChips = woSummary.map((wo) => {
+        const label = `${getShipBreakdownOrderLabel(wo.index, workOrders.length)} • ${escapeAccountHtml(wo.woNo)} • ${escapeAccountHtml(formatShipDateDisplay(wo.shipDate))}`;
+        const status = wo.complete
+          ? `<span class="badge green">Đủ để sản xuất</span>`
+          : `<span class="badge red">Thiếu ${wo.shortCodes.toLocaleString()}/${wo.needCodes.toLocaleString()} mã</span>`;
+        return `<div style="display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#0e1520;">
+          <span style="font-size:11px; font-weight:800; color:#cfe0ff;">${label}</span>${status}
+        </div>`;
+      }).join("");
       const woHeaders = workOrders.map((wo, i) => `
-        <th style="text-align:right;">${escapeAccountHtml(wo.woNo)}<span style="display:block; font-weight:600; color:var(--muted);">${getShipBreakdownOrderLabel(i, workOrders.length)} • ${escapeAccountHtml(formatShipDateDisplay(wo.shipDate))}</span></th>`).join("");
+        <th colspan="2" style="text-align:center; border-left:1px solid var(--line);">${escapeAccountHtml(wo.woNo)}<span style="display:block; font-weight:600; color:var(--muted);">${getShipBreakdownOrderLabel(i, workOrders.length)} • ${escapeAccountHtml(formatShipDateDisplay(wo.shipDate))}</span></th>`).join("");
+      const woSubHeaders = workOrders.map(() => `
+        <th style="text-align:right; border-left:1px solid var(--line);">SL cần<span>Qty needed</span></th>
+        <th style="text-align:right;">Tồn dư sau<span>Balance after</span></th>`).join("");
       const bodyHtml = rows.map((row) => {
-        const perWoCells = row.perWo.map((qty) => `<td style="text-align:right; font-weight:800;">${qty.toLocaleString()}</td>`).join("");
-        return `<tr>
+        const perWoCells = row.perWo.map((w) => `
+          <td style="text-align:right; font-weight:800; border-left:1px solid var(--line);">${w.need.toLocaleString()}</td>
+          <td style="text-align:right; font-weight:800;">${w.balanceAfter < 0 ? `<span class="badge red">${w.balanceAfter.toLocaleString()}</span>` : `<span style="color:#7ee2a8;">${w.balanceAfter.toLocaleString()}</span>`}</td>`).join("");
+        const ppCell = row.isSub
+          ? `<span style="color:#22c55e;">↳ </span><span style="font-weight:700;">${escapeAccountHtml(row.pp)}</span> <span class="badge green" style="font-size:9px;">thay thế</span>`
+          : `<span style="font-weight:800;">${escapeAccountHtml(row.pp)}</span>`;
+        return `<tr${row.isSub ? ` style="background:rgba(34,197,94,0.08);"` : ""}>
           <td>${renderHardwarePreviewBox(row.pp)}</td>
-          <td style="font-weight:800;">${escapeAccountHtml(row.pp)}</td>
-          <td>${escapeAccountHtml(row.name)}</td>
+          <td>${ppCell}</td>
+          <td${row.isSub ? ` style="padding-left:16px; background:rgba(34,197,94,0.18); color:#dfffe9; font-weight:700;"` : ""}>${escapeAccountHtml(row.name)}</td>
           <td>${escapeAccountHtml(row.uom)}</td>
+          <td style="text-align:right; font-weight:800;">${row.stock.toLocaleString()}</td>
           ${perWoCells}
-          <td style="text-align:right; font-weight:900; color:#ffffff;">${row.total.toLocaleString()}</td>
-          <td style="text-align:right;">${row.stock.toLocaleString()}</td>
-          <td style="text-align:right;">${row.supplement > 0 ? `<span class="badge red">${row.supplement.toLocaleString()}</span>` : `<span class="badge green">0</span>`}</td>
         </tr>`;
       }).join("");
       container.innerHTML = `
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
           <span style="font-size:13px; font-weight:900; color:#ffd166;">Tách nhu cầu phần cứng theo lệnh sản xuất</span>
-          <span style="font-size:11px; font-weight:700; color:var(--muted);">Sắp theo ngày xuất hàng • Tồn kho & Cần bổ sung tính trên tổng nhu cầu</span>
+          <span style="font-size:11px; font-weight:700; color:var(--muted);">Tồn kho trừ dần theo thứ tự lệnh • "Tồn dư sau" âm (đỏ) = thiếu cho lệnh đó</span>
         </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">${summaryChips}</div>
         <div class="table-shell compact" style="margin:0; border-radius:10px; overflow:hidden;">
           <div class="table-wrap">
             <table style="min-width:100%;">
               <thead>
                 <tr>
-                  <th>Hình ảnh<span>Preview</span></th>
-                  <th>Mã PP<span>PP code</span></th>
-                  <th>Tên hàng<span>Item name</span></th>
-                  <th>ĐVT<span>UOM</span></th>
+                  <th rowspan="2">Hình ảnh<span>Preview</span></th>
+                  <th rowspan="2">Mã PP<span>PP code</span></th>
+                  <th rowspan="2">Tên hàng<span>Item name</span></th>
+                  <th rowspan="2">ĐVT<span>UOM</span></th>
+                  <th rowspan="2" style="text-align:right;">Tồn kho<span>Stock</span></th>
                   ${woHeaders}
-                  <th style="text-align:right;">Tổng cần<span>Total need</span></th>
-                  <th style="text-align:right;">Tồn kho<span>Stock</span></th>
-                  <th style="text-align:right;">Cần bổ sung<span>To order</span></th>
                 </tr>
+                <tr>${woSubHeaders}</tr>
               </thead>
               <tbody>${bodyHtml}</tbody>
             </table>
@@ -10363,28 +10574,22 @@
       };
     }
 
-    // Sheet Excel "Tách theo lệnh": mỗi mã phần cứng 1 dòng, có cột nhu cầu cho từng lệnh (theo ngày xuất),
-    // kèm Tổng cần / Tồn kho / Cần bổ sung. Trả về null nếu không đủ điều kiện (không phải lệnh SX hoặc <2 lệnh).
+    // Sheet Excel "Tách theo lệnh": mỗi mã phần cứng 1 dòng; mỗi lệnh có cột "Cần" và "Thiếu"
+    // (sau khi ưu tiên trừ tồn kho cho lệnh gần nhất), kèm Tồn kho & Tổng thiếu. Trả về null nếu <2 lệnh.
     function buildWorkOrderShipBreakdownSheet() {
       const data = buildWorkOrderShipBreakdown();
       if (!data || !data.rows.length) return null;
-      const { workOrders } = data;
+      const { workOrders, woSummary } = data;
       // Áp dụng cùng bộ lọc mã PP như bảng trên màn hình để nhất quán.
       const rows = data.rows.filter(orderCheckRowMatchesPpFilter);
       if (!rows.length) return null;
 
-      const woHeaderLabels = workOrders.map((wo, i) =>
-        `${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)})`);
-      const headers = [
-        "Hình ảnh / Preview",
-        "Mã phần cứng PP / PP code",
-        "Tên hàng / Item name",
-        "Đơn vị / UOM",
-        ...woHeaderLabels,
-        "Tổng cần / Total need",
-        "Tồn kho khả dụng / Stock",
-        "Cần bổ sung / To order"
-      ];
+      const headers = ["Hình ảnh / Preview", "Mã phần cứng PP / PP code", "Tên hàng / Item name", "Đơn vị / UOM", "Tồn kho khả dụng / Stock"];
+      workOrders.forEach((wo, i) => {
+        const label = `${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)})`;
+        headers.push(`${label} - SL cần / Qty needed`);
+        headers.push(`${label} - Tồn dư sau / Balance after`);
+      });
       const COL_COUNT = headers.length;
       const LAST_COL = COL_COUNT - 1;
 
@@ -10393,24 +10598,43 @@
         ["BÁO CÁO TÁCH NHU CẦU THEO LỆNH SẢN XUẤT / DEMAND SPLIT BY WORK ORDER"],
         [contextLabel],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
-        ["Sắp theo ngày xuất hàng • Tồn kho & Cần bổ sung tính trên tổng nhu cầu / Sorted by ship date"],
-        headers
+        ["Ưu tiên tồn kho cho lệnh gần nhất trước, còn dư mới trừ tiếp cho lệnh sau / Stock allocated to earliest ship date first"]
       ];
-      const headerRowIndex = 4;
+      // Dòng tổng kết cho từng lệnh: đã đủ để sản xuất chưa, thiếu bao nhiêu mã.
+      const summaryRowIndices = [];
+      woSummary.forEach((wo) => {
+        summaryRowIndices.push(aoa.length);
+        const status = wo.complete ? "ĐỦ để sản xuất / OK" : `THIẾU ${wo.shortCodes}/${wo.needCodes} mã / SHORT`;
+        aoa.push([`${getShipBreakdownOrderLabel(wo.index, workOrders.length)} • ${wo.woNo} • ${formatShipDateDisplay(wo.shipDate)}: ${status}`]);
+      });
+      const headerRowIndex = aoa.length;
+      aoa.push(headers);
+
       const merges = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: LAST_COL } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: LAST_COL } },
         { s: { r: 2, c: 0 }, e: { r: 2, c: LAST_COL } },
         { s: { r: 3, c: 0 }, e: { r: 3, c: LAST_COL } }
       ];
+      summaryRowIndices.forEach((r) => merges.push({ s: { r, c: 0 }, e: { r, c: LAST_COL } }));
       const imageAnchors = [];
       const dataRowIndices = [];
+      const negativeCells = []; // ô "Tồn dư sau" bị âm (thiếu) -> tô đỏ
+      const subCells = [];      // ô "Tên hàng" của mã thay thế -> tô xanh lá
       const rowHeights = { [headerRowIndex]: 30 };
 
       rows.forEach((row) => {
         const rowIndex = aoa.length;
         const pp = row.pp && row.pp !== "-" ? row.pp : (row.fw || "-");
-        aoa.push(["", pp, row.name || "-", normalizeDownstreamUom(row.uom || "-"), ...row.perWo, row.total, row.stock, row.supplement]);
+        const perWoValues = [];
+        row.perWo.forEach((w, i) => {
+          perWoValues.push(w.need, w.balanceAfter);
+          // Cột: 0..4 cố định (ảnh, pp, tên, đvt, tồn kho); mỗi lệnh 2 cột (cần, tồn dư) -> tồn dư ở cột 6 + i*2.
+          if (w.balanceAfter < 0) negativeCells.push({ r: rowIndex, c: 6 + i * 2 });
+        });
+        const nameCell = row.isSub ? `↳ ${row.name || "-"} (thay thế)` : (row.name || "-");
+        if (row.isSub) subCells.push({ r: rowIndex, c: 2 }); // cột "Tên hàng"
+        aoa.push(["", pp, nameCell, normalizeDownstreamUom(row.uom || "-"), row.stock, ...perWoValues]);
         dataRowIndices.push(rowIndex);
         rowHeights[rowIndex] = 76;
         const url = getHardwarePreviewExcelUrl(pp);
@@ -10418,11 +10642,11 @@
       });
 
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
-      const woCols = workOrders.map(() => ({ wch: 18 }));
+      const woCols = [];
+      workOrders.forEach(() => woCols.push({ wch: 16 }, { wch: 18 }));
       worksheet["!cols"] = [
-        { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 },
-        ...woCols,
-        { wch: 16 }, { wch: 18 }, { wch: 16 }
+        { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 }, { wch: 18 },
+        ...woCols
       ];
       worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
       worksheet["!merges"] = merges;
@@ -10433,13 +10657,307 @@
         imageAnchors,
         styleSpec: {
           columns: COL_COUNT,
-          titleRows: [0, 1, 2, 3],
+          titleRows: [0, 1, 2, 3, ...summaryRowIndices],
           headerRow: headerRowIndex,
           bannerRows: [],
           dataRows: dataRowIndices,
-          wrapCells: []
+          wrapCells: [],
+          subCells,
+          negativeCells
         },
         itemCount: rows.length
+      };
+    }
+
+    // Dữ liệu tách theo lệnh GOM THEO SẢN PHẨM: mỗi sản phẩm liệt kê mã (chính+thay thế), mỗi lệnh có SL cần + tồn dư sau.
+    // Dùng cùng cách phân bổ "mã chính gánh phần thiếu"; tồn dư sau là số dư chạy dồn khi sản xuất lần lượt.
+    function buildWorkOrderSplitProductData() {
+      if (orderCheckContext.type !== "workOrder") return null;
+      const selected = getSelectedWorkOrderCheckWoNos();
+      const activeKey = String(orderCheckContext.workOrderNo || "").trim().toLowerCase();
+      const targetSet = (selected && selected.size) ? selected : new Set([activeKey]);
+      if (targetSet.size < 2) return null;
+
+      const bomLines = getOrderCheckBomLines();
+      const catalog = getHardwareCatalog();
+      const hardwareMap = new Map();
+      catalog.forEach((item) => { const gk = getOrderCheckGroupKey(item); if (gk && !hardwareMap.has(gk)) hardwareMap.set(gk, item); });
+
+      const infoMap = new Map();
+      productionAllocations.forEach((item) => {
+        const woNo = String(item.woNo || "").trim(); const key = woNo.toLowerCase();
+        if (!woNo || !targetSet.has(key)) return;
+        if (!infoMap.has(key)) infoMap.set(key, { woNo, key, shipDate: "" });
+        if (item.shipDate && !infoMap.get(key).shipDate) infoMap.get(key).shipDate = String(item.shipDate).trim();
+      });
+      targetSet.forEach((key) => { if (!infoMap.has(key)) infoMap.set(key, { woNo: key, key, shipDate: "" }); });
+      const workOrders = Array.from(infoMap.values()).sort((a, b) => {
+        const da = a.shipDate || "9999-12-31", db = b.shipDate || "9999-12-31";
+        if (da !== db) return da < db ? -1 : 1;
+        return a.woNo.localeCompare(b.woNo, "vi", { sensitivity: "base" });
+      });
+
+      const itemsByWo = new Map();
+      workOrders.forEach((wo) => itemsByWo.set(wo.key, []));
+      productionAllocations.forEach((item) => {
+        if (item.isHeader) return;
+        const key = String(item.woNo || "").trim().toLowerCase();
+        if (!itemsByWo.has(key)) return;
+        const productCode = String(item.productCode || "").trim();
+        const qty = Number(item.qty) || 0;
+        if (!productCode || qty <= 0) return;
+        itemsByWo.get(key).push({ productCode, productName: item.productName || productCode, qty });
+      });
+
+      const priorityAnchorDate = (workOrders[0] && workOrders[0].shipDate) || "9999-12-31";
+      const availableMap = getOrderCheckAvailableMap(bomLines, { excludeWoNos: Array.from(targetSet), priorityAnchorDate });
+      const stockSnapshot = new Map(availableMap);
+
+      const products = new Map();
+      let productSeq = 0;
+      const ensureProduct = (code, name) => {
+        const pk = code.toLowerCase();
+        if (!products.has(pk)) products.set(pk, { productCode: code, productName: name, seq: productSeq++, codes: new Map() });
+        return products.get(pk);
+      };
+
+      workOrders.forEach((wo) => {
+        (itemsByWo.get(wo.key) || []).forEach((orderItem) => {
+          const product = ensureProduct(orderItem.productCode, orderItem.productName);
+          const productKey = orderItem.productCode.toLowerCase();
+          bomLines.filter((line) => line.parent.toLowerCase() === productKey).forEach((bom) => {
+            const demandUnits = orderItem.qty * (Number(bom.qty) || 0);
+            if (demandUnits <= 0) return;
+            const mainKey = getOrderCheckGroupKey(bom);
+            const allocations = allocateOrderCheckDemandMainLast(bom, demandUnits, availableMap, catalog);
+            allocations.forEach((alloc) => {
+              const gk = alloc.key || getOrderCheckGroupKey(alloc);
+              if (!gk) return;
+              if (!product.codes.has(gk)) {
+                const master = hardwareMap.get(gk) || alloc || {};
+                product.codes.set(gk, {
+                  gk,
+                  meta: { pp: master.pp || alloc.pp || "-", fw: master.fw || alloc.fw || "-", name: master.name || alloc.name || "-", uom: normalizeDownstreamUom(master.uom || alloc.uom || "-") },
+                  isSub: gk !== mainKey,
+                  perWo: new Map()
+                });
+              }
+              const codeRec = product.codes.get(gk);
+              if (!codeRec.perWo.has(wo.key)) codeRec.perWo.set(wo.key, { need: 0, balanceAfter: 0, active: false });
+              const rec = codeRec.perWo.get(wo.key);
+              rec.need += Number(alloc.requiredQty) || 0;
+              rec.balanceAfter = Math.round(Number(availableMap.get(gk)) || 0);
+              rec.active = true;
+            });
+          });
+        });
+      });
+
+      const productList = Array.from(products.values()).sort((a, b) => a.seq - b.seq).map((product) => {
+        const rows = Array.from(product.codes.values()).map((codeRec) => {
+          const perWo = workOrders.map((wo) => {
+            const rec = codeRec.perWo.get(wo.key);
+            if (!rec || !rec.active) return { need: 0, balanceAfter: null, active: false };
+            return { need: Math.round(rec.need), balanceAfter: rec.balanceAfter, active: true };
+          });
+          return { pp: codeRec.meta.pp, fw: codeRec.meta.fw, name: codeRec.meta.name, uom: codeRec.meta.uom, isSub: codeRec.isSub, stock: Math.round(Number(stockSnapshot.get(codeRec.gk)) || 0), perWo };
+        }).sort((a, b) => (a.isSub ? 1 : 0) - (b.isSub ? 1 : 0)); // mã chính trên, mã thay thế dưới
+        return { productCode: product.productCode, productName: product.productName, rows };
+      });
+
+      return { workOrders, products: productList };
+    }
+
+    // Dựng 1 sheet "cột theo lệnh" từ danh sách dòng (có thể chèn dòng tiêu đề sản phẩm). Dùng chung cho 2 sheet mới.
+    function buildPerWoSheetFromRows(sheetTitle, contextLabel, noteLine, workOrders, displayRows) {
+      const headers = ["Hình ảnh / Preview", "Mã phần cứng PP / PP code", "Tên hàng / Item name", "Đơn vị / UOM", "Tồn kho khả dụng / Stock"];
+      workOrders.forEach((wo, i) => {
+        const label = `${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)})`;
+        headers.push(`${label} - SL cần / Qty needed`);
+        headers.push(`${label} - Tồn dư sau / Balance after`);
+      });
+      const COL_COUNT = headers.length;
+      const LAST_COL = COL_COUNT - 1;
+      const aoa = [
+        [sheetTitle],
+        [contextLabel],
+        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        [noteLine]
+      ];
+      const merges = [];
+      for (let r = 0; r < 4; r += 1) merges.push({ s: { r, c: 0 }, e: { r, c: LAST_COL } });
+      const headerRowIndex = aoa.length;
+      aoa.push(headers);
+      const rowHeights = { [headerRowIndex]: 30 };
+      const imageAnchors = [], dataRowIndices = [], bannerRowIndices = [], subCells = [], negativeCells = [];
+
+      displayRows.forEach((dr) => {
+        const rowIndex = aoa.length;
+        if (dr.type === "productHeader") {
+          bannerRowIndices.push(rowIndex);
+          aoa.push(["", `SẢN PHẨM: ${dr.productCode} — ${dr.productName}`]);
+          merges.push({ s: { r: rowIndex, c: 1 }, e: { r: rowIndex, c: LAST_COL } });
+          rowHeights[rowIndex] = 70;
+          const purl = getProductPreviewExcelUrl(dr.productCode);
+          if (purl) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: purl, name: dr.productCode });
+          return;
+        }
+        const pp = dr.pp && dr.pp !== "-" ? dr.pp : (dr.fw || "-");
+        const nameCell = dr.isSub ? `↳ ${dr.name || "-"} (thay thế)` : (dr.name || "-");
+        if (dr.isSub) subCells.push({ r: rowIndex, c: 2 });
+        const perWoVals = [];
+        dr.perWo.forEach((w, i) => {
+          perWoVals.push(w.active ? w.need : 0, (w.active && w.balanceAfter !== null) ? w.balanceAfter : "");
+          if (w.active && w.balanceAfter !== null && w.balanceAfter < 0) negativeCells.push({ r: rowIndex, c: 6 + i * 2 });
+        });
+        aoa.push(["", pp, nameCell, normalizeDownstreamUom(dr.uom || "-"), dr.stock, ...perWoVals]);
+        dataRowIndices.push(rowIndex);
+        rowHeights[rowIndex] = 76;
+        const url = getHardwarePreviewExcelUrl(pp);
+        if (url) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: url, name: pp || dr.name || "Preview" });
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      const woCols = []; workOrders.forEach(() => woCols.push({ wch: 16 }, { wch: 18 }));
+      worksheet["!cols"] = [{ wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 }, { wch: 18 }, ...woCols];
+      worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
+      worksheet["!merges"] = merges;
+      worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${XLSX.utils.encode_col(LAST_COL)}${aoa.length}` };
+      return {
+        worksheet, imageAnchors,
+        styleSpec: { columns: COL_COUNT, titleRows: [0, 1, 2, 3], headerRow: headerRowIndex, bannerRows: bannerRowIndices, dataRows: dataRowIndices, wrapCells: [], subCells, negativeCells },
+        itemCount: dataRowIndices.length
+      };
+    }
+
+    // Sheet "Theo san pham" bản tách 2 lệnh: gom theo sản phẩm, cột theo lệnh.
+    function buildWorkOrderSplitProductSheet() {
+      const data = buildWorkOrderSplitProductData();
+      if (!data || !data.products.length) return null;
+      const { workOrders, products } = data;
+      const displayRows = [];
+      let hasData = false;
+      products.forEach((product) => {
+        const rows = product.rows.filter((r) => orderCheckRowMatchesPpFilter(r));
+        if (!rows.length) return;
+        displayRows.push({ type: "productHeader", productCode: product.productCode, productName: product.productName });
+        rows.forEach((r) => { displayRows.push({ type: "data", ...r }); hasData = true; });
+      });
+      if (!hasData) return null;
+      const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
+      return buildPerWoSheetFromRows("TÁCH THEO SẢN PHẨM & LỆNH / BY PRODUCT & WORK ORDER", contextLabel,
+        "Gom theo sản phẩm, tách theo lệnh; phần thiếu dồn về mã chính / Grouped by product, split by order", workOrders, displayRows);
+    }
+
+    // Sheet "Gop tong phan cung" bản tách 2 lệnh: mỗi mã 1 dòng (phẳng), cột theo lệnh, sắp theo thiếu nhiều.
+    function buildWorkOrderSplitConsolidatedSheet() {
+      const data = buildWorkOrderShipBreakdown();
+      if (!data || !data.rows.length) return null;
+      const { workOrders } = data;
+      const rows = data.rows.filter(orderCheckRowMatchesPpFilter).filter((r) => r.total > 0)
+        .sort((a, b) => (b.totalShort - a.totalShort) || String(a.pp || a.fw || a.name).localeCompare(String(b.pp || b.fw || b.name), "vi", { sensitivity: "base" }));
+      if (!rows.length) return null;
+      const displayRows = rows.map((r) => ({
+        type: "data", pp: r.pp, fw: r.fw, name: r.name, uom: r.uom, stock: r.stock, isSub: r.isSub,
+        perWo: r.perWo.map((w) => ({ need: w.need, balanceAfter: w.balanceAfter, active: true }))
+      }));
+      const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
+      return buildPerWoSheetFromRows("GỘP TỔNG PHẦN CỨNG THEO LỆNH / CONSOLIDATED BY WORK ORDER", contextLabel,
+        "Mỗi mã 1 dòng, tách theo lệnh; phần thiếu dồn về mã chính / One row per code, split by order", workOrders, displayRows);
+    }
+
+    // Danh sách MÃ HÀNG (sản phẩm) theo lệnh: mỗi mã hàng 1 dòng, cột số lượng theo từng lệnh + tổng.
+    function buildWorkOrderProductManifestData() {
+      if (orderCheckContext.type !== "workOrder") return null;
+      const selected = getSelectedWorkOrderCheckWoNos();
+      const activeKey = String(orderCheckContext.workOrderNo || "").trim().toLowerCase();
+      const targetSet = (selected && selected.size) ? selected : new Set([activeKey]);
+      if (!targetSet.size) return null;
+
+      const infoMap = new Map();
+      productionAllocations.forEach((item) => {
+        const woNo = String(item.woNo || "").trim(); const key = woNo.toLowerCase();
+        if (!woNo || !targetSet.has(key)) return;
+        if (!infoMap.has(key)) infoMap.set(key, { woNo, key, shipDate: "" });
+        if (item.shipDate && !infoMap.get(key).shipDate) infoMap.get(key).shipDate = String(item.shipDate).trim();
+      });
+      targetSet.forEach((key) => { if (!infoMap.has(key)) infoMap.set(key, { woNo: key, key, shipDate: "" }); });
+      const workOrders = Array.from(infoMap.values()).sort((a, b) => {
+        const da = a.shipDate || "9999-12-31", db = b.shipDate || "9999-12-31";
+        if (da !== db) return da < db ? -1 : 1;
+        return a.woNo.localeCompare(b.woNo, "vi", { sensitivity: "base" });
+      });
+      const woIndex = new Map(workOrders.map((wo, i) => [wo.key, i]));
+
+      const products = new Map();
+      let seq = 0;
+      productionAllocations.forEach((item) => {
+        if (item.isHeader) return;
+        const key = String(item.woNo || "").trim().toLowerCase();
+        if (!targetSet.has(key)) return;
+        const productCode = String(item.productCode || "").trim();
+        const qty = Number(item.qty) || 0;
+        if (!productCode || qty <= 0) return;
+        const pk = productCode.toLowerCase();
+        if (!products.has(pk)) products.set(pk, { productCode, productName: item.productName || productCode, seq: seq++, perWo: workOrders.map(() => 0) });
+        const idx = woIndex.get(key);
+        if (idx != null) products.get(pk).perWo[idx] += qty;
+      });
+      if (!products.size) return null;
+
+      // Part Number tra từ bảng Mã sản phẩm (Quản lý mã) theo mã sản phẩm.
+      const productPartMap = new Map(getProductCatalog().map((p) => [String(p.code || "").trim().toLowerCase(), p.partNumber || ""]));
+      const productList = Array.from(products.values()).sort((a, b) => a.seq - b.seq).map((p) => ({
+        productCode: p.productCode,
+        partNumber: productPartMap.get(p.productCode.toLowerCase()) || "-",
+        productName: p.productName,
+        perWo: p.perWo,
+        total: p.perWo.reduce((s, n) => s + n, 0)
+      }));
+      return { workOrders, products: productList };
+    }
+
+    // Sheet đầu tiên: DANH SÁCH MÃ HÀNG THEO LỆNH.
+    function buildWorkOrderProductManifestSheet() {
+      const data = buildWorkOrderProductManifestData();
+      if (!data || !data.products.length) return null;
+      const { workOrders, products } = data;
+      const headers = ["Hình ảnh / Preview", "Mã sản phẩm / Product code", "Part Number / Part number", "Tên sản phẩm / Product name"];
+      workOrders.forEach((wo, i) => headers.push(`${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)}) - SL`));
+      headers.push("Tổng SL / Total qty");
+      const COL_COUNT = headers.length;
+      const LAST_COL = COL_COUNT - 1;
+      const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
+      const aoa = [
+        ["DANH SÁCH MÃ HÀNG THEO LỆNH / PRODUCT LIST BY WORK ORDER"],
+        [contextLabel],
+        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        ["Mỗi lệnh xuất mã hàng nào, số lượng bao nhiêu / Which order ships which product, how much"]
+      ];
+      const merges = [];
+      for (let r = 0; r < 4; r += 1) merges.push({ s: { r, c: 0 }, e: { r, c: LAST_COL } });
+      const headerRowIndex = aoa.length;
+      aoa.push(headers);
+      const rowHeights = { [headerRowIndex]: 30 };
+      const imageAnchors = [], dataRowIndices = [];
+      products.forEach((p) => {
+        const rowIndex = aoa.length;
+        aoa.push(["", p.productCode, p.partNumber, p.productName, ...p.perWo, p.total]);
+        dataRowIndices.push(rowIndex);
+        rowHeights[rowIndex] = 76;
+        const url = getProductPreviewExcelUrl(p.productCode);
+        if (url) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: url, name: p.productCode });
+      });
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      const woCols = workOrders.map(() => ({ wch: 16 }));
+      worksheet["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 20 }, { wch: 40 }, ...woCols, { wch: 14 }];
+      worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
+      worksheet["!merges"] = merges;
+      worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${XLSX.utils.encode_col(LAST_COL)}${aoa.length}` };
+      return {
+        worksheet, imageAnchors,
+        styleSpec: { columns: COL_COUNT, titleRows: [0, 1, 2, 3], headerRow: headerRowIndex, bannerRows: [], dataRows: dataRowIndices, wrapCells: [], subCells: [], negativeCells: [] },
+        itemCount: dataRowIndices.length
       };
     }
 
@@ -10459,7 +10977,23 @@
       ];
       let totalItemCount = 0;
       let sheetCount = 0;
-      // Sheet "Tách theo lệnh" (đầu tiên) — chỉ có khi ngữ cảnh lệnh sản xuất & chọn >=2 lệnh.
+      // Sheet ĐẦU TIÊN (ngữ cảnh lệnh sản xuất): danh sách mã hàng theo lệnh — lệnh nào xuất mã nào, SL bao nhiêu.
+      if (orderCheckContext.type === "workOrder") {
+        try {
+          const manifestResult = buildWorkOrderProductManifestSheet();
+          if (manifestResult) {
+            const name = "Ma hang theo lenh";
+            totalItemCount += manifestResult.itemCount;
+            XLSX.utils.book_append_sheet(workbook, manifestResult.worksheet, name);
+            imageAnchorsBySheet.set(name, manifestResult.imageAnchors);
+            if (manifestResult.styleSpec) reportStylesBySheet.set(name, manifestResult.styleSpec);
+            sheetCount += 1;
+          }
+        } catch (manifestError) {
+          console.error("Lỗi khi dựng sheet 'Ma hang theo lenh':", manifestError);
+        }
+      }
+      // Sheet "Tách theo lệnh" — chỉ có khi ngữ cảnh lệnh sản xuất & chọn >=2 lệnh.
       try {
         const breakdownResult = buildWorkOrderShipBreakdownSheet();
         if (breakdownResult) {
@@ -10473,23 +11007,48 @@
       } catch (breakdownError) {
         console.error("Lỗi khi dựng sheet 'Tach theo lenh':", breakdownError);
       }
-      try {
-        exportSheets.forEach(({ mode, name }) => {
-          // Dựng từng sheet trong try riêng: một sheet lỗi cũng không làm hỏng cả lần xuất.
+
+      // Khi ngữ cảnh lệnh sản xuất & chọn >=2 lệnh: 2 sheet còn lại cũng TÁCH THEO LỆNH (cột theo lệnh),
+      // không gộp chung. Ngược lại (1 lệnh / đơn hàng): giữ 2 sheet gộp dựng từ bảng trên màn hình.
+      const splitSelected = orderCheckContext.type === "workOrder" ? getSelectedWorkOrderCheckWoNos() : null;
+      const useSplitSheets = Boolean(splitSelected && splitSelected.size >= 2);
+
+      if (useSplitSheets) {
+        [
+          { name: "Theo san pham", build: buildWorkOrderSplitProductSheet },
+          { name: "Gop tong phan cung", build: buildWorkOrderSplitConsolidatedSheet }
+        ].forEach(({ name, build }) => {
           try {
-            const result = buildOrderCheckExportSheet(mode);
+            const result = build();
+            if (!result) return;
             totalItemCount += result.itemCount;
             XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
             imageAnchorsBySheet.set(name, result.imageAnchors);
             if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
             sheetCount += 1;
           } catch (sheetError) {
-            console.error(`Lỗi khi dựng sheet "${name}" của báo cáo kiểm tra vật tư:`, sheetError);
+            console.error(`Lỗi khi dựng sheet tách theo lệnh "${name}":`, sheetError);
           }
         });
-      } finally {
-        orderCheckViewMode = previousMode;
-        renderOrderCheckResults();
+      } else {
+        try {
+          exportSheets.forEach(({ mode, name }) => {
+            // Dựng từng sheet trong try riêng: một sheet lỗi cũng không làm hỏng cả lần xuất.
+            try {
+              const result = buildOrderCheckExportSheet(mode);
+              totalItemCount += result.itemCount;
+              XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
+              imageAnchorsBySheet.set(name, result.imageAnchors);
+              if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
+              sheetCount += 1;
+            } catch (sheetError) {
+              console.error(`Lỗi khi dựng sheet "${name}" của báo cáo kiểm tra vật tư:`, sheetError);
+            }
+          });
+        } finally {
+          orderCheckViewMode = previousMode;
+          renderOrderCheckResults();
+        }
       }
 
       if (!sheetCount) {
@@ -12293,37 +12852,47 @@
     // SheetJS bản cộng đồng không ghi cell style; tự chèn font/fill/border/xf vào styles.xml rồi gán chỉ số cho ô.
     function buildReportStyles(stylesXml) {
       let xml = stylesXml;
-      // Fonts: 0 mặc định; thêm 1=đậm xanh đậm, 2=đậm trắng.
+      // Fonts: 0 mặc định; thêm 1=đậm xanh đậm, 2=đậm trắng, 3=đậm đỏ (ô thiếu), 4=đậm xanh lá (mã thay thế).
       const fontsRes = appendToCountedSection(xml, "fonts",
         `<font><b/><sz val="11"/><color rgb="FF1F3864"/><name val="Calibri"/></font>` +
-        `<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>`);
+        `<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>` +
+        `<font><b/><sz val="11"/><color rgb="FF9C0006"/><name val="Calibri"/></font>` +
+        `<font><b/><sz val="11"/><color rgb="FF006100"/><name val="Calibri"/></font>`);
       xml = fontsRes.xml;
       const fontBold = fontsRes.base;
       const fontBoldWhite = fontsRes.base + 1;
-      // Fills: 0/1 mặc định; thêm header (xanh đậm) và banner (xanh nhạt).
+      const fontBoldRed = fontsRes.base + 2;
+      const fontBoldGreen = fontsRes.base + 3;
+      // Fills: 0/1 mặc định; thêm header (xanh đậm), banner (xanh nhạt), thiếu (đỏ nhạt), thay thế (xanh lá nhạt).
       const fillsRes = appendToCountedSection(xml, "fills",
         `<fill><patternFill patternType="solid"><fgColor rgb="FF305496"/><bgColor indexed="64"/></patternFill></fill>` +
-        `<fill><patternFill patternType="solid"><fgColor rgb="FFBDD7EE"/><bgColor indexed="64"/></patternFill></fill>`);
+        `<fill><patternFill patternType="solid"><fgColor rgb="FFBDD7EE"/><bgColor indexed="64"/></patternFill></fill>` +
+        `<fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/><bgColor indexed="64"/></patternFill></fill>` +
+        `<fill><patternFill patternType="solid"><fgColor rgb="FFC6EFCE"/><bgColor indexed="64"/></patternFill></fill>`);
       xml = fillsRes.xml;
       const fillHeader = fillsRes.base;
       const fillBanner = fillsRes.base + 1;
+      const fillNegative = fillsRes.base + 2;
+      const fillSub = fillsRes.base + 3;
       // Borders: thêm 1 viền mảnh 4 cạnh.
       const bordersRes = appendToCountedSection(xml, "borders",
         `<border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border>`);
       xml = bordersRes.xml;
       const borderThin = bordersRes.base;
-      // cellXfs: data, header, banner, title, wrap.
+      // cellXfs: data, header, banner, title, wrap, negative (ô số dư âm = thiếu), sub (mã thay thế = xanh lá).
       const xfsRes = appendToCountedSection(xml, "cellXfs",
         `<xf numFmtId="0" fontId="0" fillId="0" borderId="${borderThin}" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>` +
         `<xf numFmtId="0" fontId="${fontBoldWhite}" fillId="${fillHeader}" borderId="${borderThin}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>` +
         `<xf numFmtId="0" fontId="${fontBold}" fillId="${fillBanner}" borderId="${borderThin}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>` +
         `<xf numFmtId="0" fontId="${fontBold}" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
-        `<xf numFmtId="0" fontId="0" fillId="0" borderId="${borderThin}" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>`);
+        `<xf numFmtId="0" fontId="0" fillId="0" borderId="${borderThin}" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>` +
+        `<xf numFmtId="0" fontId="${fontBoldRed}" fillId="${fillNegative}" borderId="${borderThin}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="${fontBoldGreen}" fillId="${fillSub}" borderId="${borderThin}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>`);
       xml = xfsRes.xml;
       const base = xfsRes.base;
       return {
         xml,
-        styles: { data: base, header: base + 1, banner: base + 2, title: base + 3, wrap: base + 4 }
+        styles: { data: base, header: base + 1, banner: base + 2, title: base + 3, wrap: base + 4, negative: base + 5, sub: base + 6 }
       };
     }
 
@@ -12335,6 +12904,8 @@
       (spec.bannerRows || []).forEach((r) => rowStyle.set(r + 1, styles.banner));
       const cellOverride = new Map();
       (spec.wrapCells || []).forEach(({ r, c }) => cellOverride.set(`${r + 1}|${c}`, styles.wrap));
+      (spec.subCells || []).forEach(({ r, c }) => cellOverride.set(`${r + 1}|${c}`, styles.sub));
+      (spec.negativeCells || []).forEach(({ r, c }) => cellOverride.set(`${r + 1}|${c}`, styles.negative));
 
       let xml = sheetXml;
       rowStyle.forEach((defaultXf, rowNum) => {
@@ -16816,6 +17387,7 @@
   </script>
 </body>
 </html>
+
 
 
 
