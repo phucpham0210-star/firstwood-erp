@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260716143838"></script>
-  <script src="preview-images-data.js?v=20260716143838"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260716164209"></script>
+  <script src="preview-images-data.js?v=20260716164209"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -10470,12 +10470,13 @@
         ? `Lệnh sản xuất / Work orders: ${selectedWoNames.join(", ") || orderCheckContext.workOrderNo || "-"}`
         : "Đơn hàng đã chọn / Selected orders";
       const viewLabel = mode === "shortage"
-        ? "Gộp tổng phần cứng / Consolidated hardware summary"
-        : "Tách theo sản phẩm / Breakdown by product";
+        ? "GIẢI TRÌNH SHEET — Gộp toàn bộ phần cứng cần cho (các) đơn/lệnh đã chọn thành 1 danh sách: SL cần, SL khả dụng, SL thiếu.   ||   SHEET — All hardware needed for the selected order(s), consolidated: qty needed, available, shortage."
+        : "GIẢI TRÌNH SHEET — Nhu cầu phần cứng tách theo TỪNG SẢN PHẨM: mã chính/mã thay thế, SL cần, SL khả dụng, SL thiếu.   ||   SHEET — Hardware demand broken down BY PRODUCT: main/substitute, qty needed, available, shortage.";
       const rows = [
         ["BÁO CÁO KIỂM TRA VẬT TƯ / MATERIAL CHECK REPORT"],
         [contextLabel],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
+        [getExportFilePurposeLine()],
         [viewLabel],
         headers
       ];
@@ -10483,7 +10484,8 @@
         { s: { r: 0, c: 0 }, e: { r: 0, c: LAST_COL } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: LAST_COL } },
         { s: { r: 2, c: 0 }, e: { r: 2, c: LAST_COL } },
-        { s: { r: 3, c: 0 }, e: { r: 3, c: LAST_COL } }
+        { s: { r: 3, c: 0 }, e: { r: 3, c: LAST_COL } },
+        { s: { r: 4, c: 0 }, e: { r: 4, c: LAST_COL } }
       ];
       const imageAnchors = [];
       const productHeaderRowIndices = [];
@@ -10552,19 +10554,21 @@
         { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 34 },
         { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 22 }
       ];
-      const headerRowIndex = 4;
+      const headerRowIndex = 5;
       rowHeights[headerRowIndex] = 30;
+      rowHeights[3] = 46; // giải trình file
+      rowHeights[4] = 46; // giải trình sheet
       worksheet["!rows"] = rows.map((_, rowIndex) => rowHeights[rowIndex] ? { hpt: rowHeights[rowIndex] } : {});
       worksheet["!merges"] = merges;
       const lastColLetter = XLSX.utils.encode_col(LAST_COL);
-      worksheet["!autofilter"] = { ref: `A5:${lastColLetter}${rows.length}` };
-      const wrapCells = mode === "shortage" ? dataRowIndices.map((r) => ({ r, c: ISSUE_COL })) : [];
+      worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${lastColLetter}${rows.length}` };
+      const wrapCells = [{ r: 3, c: 0 }, { r: 4, c: 0 }].concat(mode === "shortage" ? dataRowIndices.map((r) => ({ r, c: ISSUE_COL })) : []);
       return {
         worksheet,
         imageAnchors,
         styleSpec: {
           columns: COL_COUNT,
-          titleRows: [0, 1, 2, 3],
+          titleRows: [0, 1, 2, 3, 4],
           headerRow: headerRowIndex,
           bannerRows: productHeaderRowIndices,
           dataRows: dataRowIndices,
@@ -10572,6 +10576,35 @@
         },
         itemCount: imageAnchors.length || bodyRows.filter((row) => !row.classList.contains("order-check-product-row") && row.cells.length >= 9).length
       };
+    }
+
+    // Bản đồ: mỗi mã phần cứng (gk) đang được những MÃ HÀNG nào dùng — kèm SKU (Part Number) và số lượng đang dùng.
+    function buildHardwareUsageMap(withQty) {
+      const data = buildWorkOrderSplitProductData();
+      if (!data || !data.products.length) return new Map();
+      const productPartMap = new Map(getProductCatalog().map((p) => [String(p.code || "").trim().toLowerCase(), p.partNumber || ""]));
+      const perGk = new Map(); // gk -> Map<productKey, {label, qty}>
+      data.products.forEach((product) => {
+        const sku = productPartMap.get(product.productCode.toLowerCase()) || "";
+        const label = sku ? `${product.productCode} (${sku})` : product.productCode;
+        const pk = product.productCode.toLowerCase();
+        product.rows.forEach((r) => {
+          if (!r.gk) return;
+          const qty = r.perWo.reduce((s, w) => s + (w.active ? w.need : 0), 0);
+          if (!perGk.has(r.gk)) perGk.set(r.gk, new Map());
+          const inner = perGk.get(r.gk);
+          if (!inner.has(pk)) inner.set(pk, { label, qty: 0 });
+          inner.get(pk).qty += qty;
+        });
+      });
+      const out = new Map();
+      perGk.forEach((inner, gk) => {
+        const parts = Array.from(inner.values())
+          .sort((a, b) => b.qty - a.qty)
+          .map((v) => withQty ? `${v.label}: ${Math.round(v.qty).toLocaleString()}` : v.label);
+        out.set(gk, parts.join(", "));
+      });
+      return out;
     }
 
     // Sheet Excel "Tách theo lệnh": mỗi mã phần cứng 1 dòng; mỗi lệnh có cột "Cần" và "Thiếu"
@@ -10584,7 +10617,8 @@
       const rows = data.rows.filter(orderCheckRowMatchesPpFilter);
       if (!rows.length) return null;
 
-      const headers = ["Hình ảnh / Preview", "Mã phần cứng PP / PP code", "Tên hàng / Item name", "Đơn vị / UOM", "Tồn kho khả dụng / Stock"];
+      const usageMap = buildHardwareUsageMap(true);
+      const headers = ["Hình ảnh / Preview", "Mã phần cứng PP / PP code", "Tên hàng / Item name", "Đơn vị / UOM", "Mã đang dùng + SL / Products using (qty)", "Tồn kho khả dụng / Stock"];
       workOrders.forEach((wo, i) => {
         const label = `${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)})`;
         headers.push(`${label} - SL cần / Qty needed`);
@@ -10594,12 +10628,15 @@
       const LAST_COL = COL_COUNT - 1;
 
       const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
+      const sheetPurpose = "GIẢI TRÌNH SHEET — Chi tiết TỪNG mã phần cứng theo từng lệnh (mã chính + mã thay thế). Mỗi lệnh có 'SL cần' và 'Tồn dư sau' (âm/đỏ = thiếu). Mã thay thế dùng trước cho đến hết; phần thiếu dồn hết về mã chính để đặt mua. Cột 'Mã đang dùng' cho biết mã hàng nào đang dùng và bao nhiêu.   ||   SHEET — Detail per hardware code by order (main + substitute). Each order shows 'Qty needed' and 'Balance after' (negative/red = short). Substitutes are used first until depleted; the shortage is charged to the main code to purchase. 'Products using' lists which products consume it and how much.";
       const aoa = [
         ["BÁO CÁO TÁCH NHU CẦU THEO LỆNH SẢN XUẤT / DEMAND SPLIT BY WORK ORDER"],
         [contextLabel],
         [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
-        ["Ưu tiên tồn kho cho lệnh gần nhất trước, còn dư mới trừ tiếp cho lệnh sau / Stock allocated to earliest ship date first"]
+        [getExportFilePurposeLine()],
+        [sheetPurpose]
       ];
+      const introCount = aoa.length; // số dòng giải trình đầu sheet (trước phần tổng kết)
       // Dòng tổng kết cho từng lệnh: đã đủ để sản xuất chưa, thiếu bao nhiêu mã.
       const summaryRowIndices = [];
       woSummary.forEach((wo) => {
@@ -10610,18 +10647,15 @@
       const headerRowIndex = aoa.length;
       aoa.push(headers);
 
-      const merges = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: LAST_COL } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: LAST_COL } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: LAST_COL } },
-        { s: { r: 3, c: 0 }, e: { r: 3, c: LAST_COL } }
-      ];
+      const merges = [];
+      for (let r = 0; r < introCount; r += 1) merges.push({ s: { r, c: 0 }, e: { r, c: LAST_COL } });
       summaryRowIndices.forEach((r) => merges.push({ s: { r, c: 0 }, e: { r, c: LAST_COL } }));
       const imageAnchors = [];
       const dataRowIndices = [];
       const negativeCells = []; // ô "Tồn dư sau" bị âm (thiếu) -> tô đỏ
       const subCells = [];      // ô "Tên hàng" của mã thay thế -> tô xanh lá
-      const rowHeights = { [headerRowIndex]: 30 };
+      const wrapCells = [{ r: 3, c: 0 }, { r: 4, c: 0 }]; // giải trình file & sheet + ô "Mã đang dùng"
+      const rowHeights = { [headerRowIndex]: 30, 3: 46, 4: 46 };
 
       rows.forEach((row) => {
         const rowIndex = aoa.length;
@@ -10629,12 +10663,13 @@
         const perWoValues = [];
         row.perWo.forEach((w, i) => {
           perWoValues.push(w.need, w.balanceAfter);
-          // Cột: 0..4 cố định (ảnh, pp, tên, đvt, tồn kho); mỗi lệnh 2 cột (cần, tồn dư) -> tồn dư ở cột 6 + i*2.
-          if (w.balanceAfter < 0) negativeCells.push({ r: rowIndex, c: 6 + i * 2 });
+          // Cột: 0..5 cố định (ảnh, pp, tên, đvt, mã đang dùng, tồn kho); mỗi lệnh 2 cột -> tồn dư ở cột 7 + i*2.
+          if (w.balanceAfter < 0) negativeCells.push({ r: rowIndex, c: 7 + i * 2 });
         });
         const nameCell = row.isSub ? `↳ ${row.name || "-"} (thay thế)` : (row.name || "-");
         if (row.isSub) subCells.push({ r: rowIndex, c: 2 }); // cột "Tên hàng"
-        aoa.push(["", pp, nameCell, normalizeDownstreamUom(row.uom || "-"), row.stock, ...perWoValues]);
+        wrapCells.push({ r: rowIndex, c: 4 }); // cột "Mã đang dùng"
+        aoa.push(["", pp, nameCell, normalizeDownstreamUom(row.uom || "-"), usageMap.get(row.groupKey) || "-", row.stock, ...perWoValues]);
         dataRowIndices.push(rowIndex);
         rowHeights[rowIndex] = 76;
         const url = getHardwarePreviewExcelUrl(pp);
@@ -10645,7 +10680,7 @@
       const woCols = [];
       workOrders.forEach(() => woCols.push({ wch: 16 }, { wch: 18 }));
       worksheet["!cols"] = [
-        { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 }, { wch: 18 },
+        { wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 }, { wch: 46 }, { wch: 18 },
         ...woCols
       ];
       worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
@@ -10657,11 +10692,11 @@
         imageAnchors,
         styleSpec: {
           columns: COL_COUNT,
-          titleRows: [0, 1, 2, 3, ...summaryRowIndices],
+          titleRows: [0, 1, 2, 3, 4, ...summaryRowIndices],
           headerRow: headerRowIndex,
           bannerRows: [],
           dataRows: dataRowIndices,
-          wrapCells: [],
+          wrapCells,
           subCells,
           negativeCells
         },
@@ -10760,7 +10795,7 @@
             if (!rec || !rec.active) return { need: 0, balanceAfter: null, active: false };
             return { need: Math.round(rec.need), balanceAfter: rec.balanceAfter, active: true };
           });
-          return { pp: codeRec.meta.pp, fw: codeRec.meta.fw, name: codeRec.meta.name, uom: codeRec.meta.uom, isSub: codeRec.isSub, stock: Math.round(Number(stockSnapshot.get(codeRec.gk)) || 0), perWo };
+          return { gk: codeRec.gk, pp: codeRec.meta.pp, fw: codeRec.meta.fw, name: codeRec.meta.name, uom: codeRec.meta.uom, isSub: codeRec.isSub, stock: Math.round(Number(stockSnapshot.get(codeRec.gk)) || 0), perWo };
         }).sort((a, b) => (a.isSub ? 1 : 0) - (b.isSub ? 1 : 0)); // mã chính trên, mã thay thế dưới
         return { productCode: product.productCode, productName: product.productName, rows };
       });
@@ -10768,9 +10803,17 @@
       return { workOrders, products: productList };
     }
 
+    // Dòng "giải trình file" song ngữ, chung cho MỌI sheet — để ai đọc cũng hiểu file này dùng làm gì.
+    function getExportFilePurposeLine() {
+      return "GIẢI TRÌNH FILE — Đối chiếu nhu cầu phần cứng của các lệnh sản xuất với tồn kho khả dụng, ưu tiên theo ngày xuất hàng, để biết mỗi lệnh cần gì, còn thiếu bao nhiêu và cần mua thêm bao nhiêu.   ||   FILE PURPOSE — Reconcile hardware demand of production work orders against available stock, prioritized by ship date, to see what each order needs, how much is short and how much to purchase.";
+    }
+
     // Dựng 1 sheet "cột theo lệnh" từ danh sách dòng (có thể chèn dòng tiêu đề sản phẩm). Dùng chung cho 2 sheet mới.
-    function buildPerWoSheetFromRows(sheetTitle, contextLabel, noteLine, workOrders, displayRows) {
-      const headers = ["Hình ảnh / Preview", "Mã phần cứng PP / PP code", "Tên hàng / Item name", "Đơn vị / UOM", "Tồn kho khả dụng / Stock"];
+    function buildPerWoSheetFromRows(sheetTitle, contextLabel, noteLine, workOrders, displayRows, extraColHeader) {
+      const hasExtra = Boolean(extraColHeader);
+      const headers = ["Hình ảnh / Preview", "Mã phần cứng PP / PP code", "Tên hàng / Item name", "Đơn vị / UOM"];
+      if (hasExtra) headers.push(extraColHeader);
+      headers.push("Tồn kho khả dụng / Stock");
       workOrders.forEach((wo, i) => {
         const label = `${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)})`;
         headers.push(`${label} - SL cần / Qty needed`);
@@ -10778,23 +10821,28 @@
       });
       const COL_COUNT = headers.length;
       const LAST_COL = COL_COUNT - 1;
-      const aoa = [
-        [sheetTitle],
-        [contextLabel],
-        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
-        [noteLine]
+      const balBaseCol = hasExtra ? 7 : 6; // cột "Tồn dư sau" đầu tiên (dịch 1 khi có cột phụ)
+      const introLines = [
+        sheetTitle,
+        contextLabel,
+        `Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`,
+        getExportFilePurposeLine(),
+        noteLine
       ];
-      const merges = [];
-      for (let r = 0; r < 4; r += 1) merges.push({ s: { r, c: 0 }, e: { r, c: LAST_COL } });
+      const aoa = introLines.map((line) => [line]);
+      const merges = introLines.map((_, r) => ({ s: { r, c: 0 }, e: { r, c: LAST_COL } }));
       const headerRowIndex = aoa.length;
       aoa.push(headers);
-      const rowHeights = { [headerRowIndex]: 30 };
+      const rowHeights = { [headerRowIndex]: 30, 3: 46, 4: 46 };
       const imageAnchors = [], dataRowIndices = [], bannerRowIndices = [], subCells = [], negativeCells = [];
+      const wrapCells = [{ r: 3, c: 0 }, { r: 4, c: 0 }]; // giải trình file & sheet -> cho xuống dòng
+      const productRowMap = new Map(); // mã sản phẩm (lowercase) -> dòng Excel (1-based) của tiêu đề sản phẩm
 
       displayRows.forEach((dr) => {
         const rowIndex = aoa.length;
         if (dr.type === "productHeader") {
           bannerRowIndices.push(rowIndex);
+          productRowMap.set(String(dr.productCode || "").trim().toLowerCase(), rowIndex + 1);
           aoa.push(["", `SẢN PHẨM: ${dr.productCode} — ${dr.productName}`]);
           merges.push({ s: { r: rowIndex, c: 1 }, e: { r: rowIndex, c: LAST_COL } });
           rowHeights[rowIndex] = 70;
@@ -10808,9 +10856,12 @@
         const perWoVals = [];
         dr.perWo.forEach((w, i) => {
           perWoVals.push(w.active ? w.need : 0, (w.active && w.balanceAfter !== null) ? w.balanceAfter : "");
-          if (w.active && w.balanceAfter !== null && w.balanceAfter < 0) negativeCells.push({ r: rowIndex, c: 6 + i * 2 });
+          if (w.active && w.balanceAfter !== null && w.balanceAfter < 0) negativeCells.push({ r: rowIndex, c: balBaseCol + i * 2 });
         });
-        aoa.push(["", pp, nameCell, normalizeDownstreamUom(dr.uom || "-"), dr.stock, ...perWoVals]);
+        const rowVals = ["", pp, nameCell, normalizeDownstreamUom(dr.uom || "-")];
+        if (hasExtra) { rowVals.push(dr.usage || "-"); wrapCells.push({ r: rowIndex, c: 4 }); }
+        rowVals.push(dr.stock, ...perWoVals);
+        aoa.push(rowVals);
         dataRowIndices.push(rowIndex);
         rowHeights[rowIndex] = 76;
         const url = getHardwarePreviewExcelUrl(pp);
@@ -10819,13 +10870,13 @@
 
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
       const woCols = []; workOrders.forEach(() => woCols.push({ wch: 16 }, { wch: 18 }));
-      worksheet["!cols"] = [{ wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 }, { wch: 18 }, ...woCols];
+      worksheet["!cols"] = [{ wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 }, ...(hasExtra ? [{ wch: 46 }] : []), { wch: 18 }, ...woCols];
       worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
       worksheet["!merges"] = merges;
       worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${XLSX.utils.encode_col(LAST_COL)}${aoa.length}` };
       return {
-        worksheet, imageAnchors,
-        styleSpec: { columns: COL_COUNT, titleRows: [0, 1, 2, 3], headerRow: headerRowIndex, bannerRows: bannerRowIndices, dataRows: dataRowIndices, wrapCells: [], subCells, negativeCells },
+        worksheet, imageAnchors, productRowMap,
+        styleSpec: { columns: COL_COUNT, titleRows: [0, 1, 2, 3, 4], headerRow: headerRowIndex, bannerRows: bannerRowIndices, dataRows: dataRowIndices, wrapCells, subCells, negativeCells },
         itemCount: dataRowIndices.length
       };
     }
@@ -10846,7 +10897,8 @@
       if (!hasData) return null;
       const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
       return buildPerWoSheetFromRows("TÁCH THEO SẢN PHẨM & LỆNH / BY PRODUCT & WORK ORDER", contextLabel,
-        "Gom theo sản phẩm, tách theo lệnh; phần thiếu dồn về mã chính / Grouped by product, split by order", workOrders, displayRows);
+        "GIẢI TRÌNH SHEET — Nhu cầu phần cứng GOM THEO TỪNG SẢN PHẨM, tách theo từng lệnh (SL cần & Tồn dư sau mỗi lệnh); phần thiếu dồn về mã chính. Xem mỗi sản phẩm cần những phần cứng gì.   ||   SHEET — Hardware demand GROUPED BY PRODUCT, split per order (qty needed & balance after); shortage charged to the main code. See which hardware each product needs.",
+        workOrders, displayRows);
     }
 
     // Sheet "Gop tong phan cung" bản tách 2 lệnh: mỗi mã 1 dòng (phẳng), cột theo lệnh, sắp theo thiếu nhiều.
@@ -10863,7 +10915,8 @@
       }));
       const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
       return buildPerWoSheetFromRows("GỘP TỔNG PHẦN CỨNG THEO LỆNH / CONSOLIDATED BY WORK ORDER", contextLabel,
-        "Mỗi mã 1 dòng, tách theo lệnh; phần thiếu dồn về mã chính / One row per code, split by order", workOrders, displayRows);
+        "GIẢI TRÌNH SHEET — GỘP mỗi mã phần cứng thành 1 dòng, tách theo từng lệnh (SL cần & Tồn dư sau), sắp mã thiếu nhiều nhất lên đầu; phần thiếu dồn về mã chính. Dùng để lập đơn mua nhanh.   ||   SHEET — One row per hardware code, split per order (qty needed & balance after), most-short first; shortage charged to the main code. Use it to raise purchase orders quickly.",
+        workOrders, displayRows);
     }
 
     // Danh sách MÃ HÀNG (sản phẩm) theo lệnh: mỗi mã hàng 1 dòng, cột số lượng theo từng lệnh + tổng.
@@ -10907,56 +10960,78 @@
 
       // Part Number tra từ bảng Mã sản phẩm (Quản lý mã) theo mã sản phẩm.
       const productPartMap = new Map(getProductCatalog().map((p) => [String(p.code || "").trim().toLowerCase(), p.partNumber || ""]));
-      const productList = Array.from(products.values()).sort((a, b) => a.seq - b.seq).map((p) => ({
-        productCode: p.productCode,
-        partNumber: productPartMap.get(p.productCode.toLowerCase()) || "-",
-        productName: p.productName,
-        perWo: p.perWo,
-        total: p.perWo.reduce((s, n) => s + n, 0)
-      }));
+      const productList = Array.from(products.values()).sort((a, b) => a.seq - b.seq).map((p) => {
+        const detail = getProductDetailForExport(p.productCode);
+        return {
+          productCode: p.productCode,
+          partNumber: productPartMap.get(p.productCode.toLowerCase()) || "-",
+          productName: p.productName,
+          packL: detail.packL || "-",
+          packW: detail.packW || "-",
+          packH: detail.packH || "-",
+          perWo: p.perWo,
+          total: p.perWo.reduce((s, n) => s + n, 0)
+        };
+      });
       return { workOrders, products: productList };
     }
 
-    // Sheet đầu tiên: DANH SÁCH MÃ HÀNG THEO LỆNH.
-    function buildWorkOrderProductManifestSheet() {
+    // Sheet đầu tiên: DANH SÁCH MÃ HÀNG THEO LỆNH. linkMap (tuỳ chọn): mã sản phẩm -> {sheetName, row} để bấm nhảy sheet.
+    function buildWorkOrderProductManifestSheet(linkMap) {
       const data = buildWorkOrderProductManifestData();
       if (!data || !data.products.length) return null;
       const { workOrders, products } = data;
-      const headers = ["Hình ảnh / Preview", "Mã sản phẩm / Product code", "Part Number / Part number", "Tên sản phẩm / Product name"];
+      const hasLinks = Boolean(linkMap && linkMap.size);
+      const headers = ["Hình ảnh / Preview", "Mã sản phẩm / Product code", "Part Number / Part number", "Tên sản phẩm / Product name",
+        "Dài đóng gói / Pack L", "Rộng đóng gói / Pack W", "Cao đóng gói / Pack H"];
       workOrders.forEach((wo, i) => headers.push(`${wo.woNo} (${getShipBreakdownOrderLabel(i, workOrders.length)} - ${formatShipDateDisplay(wo.shipDate)}) - SL`));
       headers.push("Tổng SL / Total qty");
       const COL_COUNT = headers.length;
       const LAST_COL = COL_COUNT - 1;
       const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
-      const aoa = [
-        ["DANH SÁCH MÃ HÀNG THEO LỆNH / PRODUCT LIST BY WORK ORDER"],
-        [contextLabel],
-        [`Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`],
-        ["Mỗi lệnh xuất mã hàng nào, số lượng bao nhiêu / Which order ships which product, how much"]
+      const noteLine = "GIẢI TRÌNH SHEET — Danh sách mã hàng (thành phẩm) mỗi lệnh cần xuất: mã, part number, kích thước đóng gói và số lượng theo từng lệnh."
+        + (hasLinks ? " Bấm vào Mã sản phẩm để nhảy sang sheet Theo sản phẩm." : "")
+        + "   ||   SHEET — Finished products each work order must ship: code, part number, packing size and quantity per order."
+        + (hasLinks ? " Click a product code to jump to the by-product sheet." : "");
+      const introLines = [
+        "DANH SÁCH MÃ HÀNG THEO LỆNH / PRODUCT LIST BY WORK ORDER",
+        contextLabel,
+        `Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`,
+        getExportFilePurposeLine(),
+        noteLine
       ];
-      const merges = [];
-      for (let r = 0; r < 4; r += 1) merges.push({ s: { r, c: 0 }, e: { r, c: LAST_COL } });
+      const aoa = introLines.map((line) => [line]);
+      const merges = introLines.map((_, r) => ({ s: { r, c: 0 }, e: { r, c: LAST_COL } }));
       const headerRowIndex = aoa.length;
       aoa.push(headers);
-      const rowHeights = { [headerRowIndex]: 30 };
-      const imageAnchors = [], dataRowIndices = [];
+      const rowHeights = { [headerRowIndex]: 30, 3: 46, 4: 46 };
+      const imageAnchors = [], dataRowIndices = [], linkCells = [];
+      const wrapCells = [{ r: 3, c: 0 }, { r: 4, c: 0 }];
       products.forEach((p) => {
         const rowIndex = aoa.length;
-        aoa.push(["", p.productCode, p.partNumber, p.productName, ...p.perWo, p.total]);
+        aoa.push(["", p.productCode, p.partNumber, p.productName, p.packL, p.packW, p.packH, ...p.perWo, p.total]);
         dataRowIndices.push(rowIndex);
         rowHeights[rowIndex] = 76;
         const url = getProductPreviewExcelUrl(p.productCode);
         if (url) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: url, name: p.productCode });
+        const link = hasLinks ? linkMap.get(String(p.productCode || "").trim().toLowerCase()) : null;
+        if (link) linkCells.push({ excelRow: rowIndex + 1, sheetName: link.sheetName, targetRow: link.row });
       });
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      // Gắn link nội bộ (nhảy tới đúng dòng sản phẩm ở sheet Theo sản phẩm) lên ô Mã sản phẩm (cột B).
+      linkCells.forEach(({ excelRow, sheetName, targetRow }) => {
+        const ref = `B${excelRow}`;
+        if (!worksheet[ref]) worksheet[ref] = { t: "s", v: "" };
+        worksheet[ref].l = { Target: `#'${sheetName}'!A${targetRow}`, Tooltip: "Xem chi tiết phần cứng theo sản phẩm" };
+      });
       const woCols = workOrders.map(() => ({ wch: 16 }));
-      worksheet["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 20 }, { wch: 40 }, ...woCols, { wch: 14 }];
+      worksheet["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 20 }, { wch: 40 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, ...woCols, { wch: 14 }];
       worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
       worksheet["!merges"] = merges;
       worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${XLSX.utils.encode_col(LAST_COL)}${aoa.length}` };
       return {
         worksheet, imageAnchors,
-        styleSpec: { columns: COL_COUNT, titleRows: [0, 1, 2, 3], headerRow: headerRowIndex, bannerRows: [], dataRows: dataRowIndices, wrapCells: [], subCells: [], negativeCells: [] },
+        styleSpec: { columns: COL_COUNT, titleRows: [0, 1, 2, 3, 4], headerRow: headerRowIndex, bannerRows: [], dataRows: dataRowIndices, wrapCells, subCells: [], negativeCells: [] },
         itemCount: dataRowIndices.length
       };
     }
@@ -10977,73 +11052,48 @@
       ];
       let totalItemCount = 0;
       let sheetCount = 0;
-      // Sheet ĐẦU TIÊN (ngữ cảnh lệnh sản xuất): danh sách mã hàng theo lệnh — lệnh nào xuất mã nào, SL bao nhiêu.
-      if (orderCheckContext.type === "workOrder") {
-        try {
-          const manifestResult = buildWorkOrderProductManifestSheet();
-          if (manifestResult) {
-            const name = "Ma hang theo lenh";
-            totalItemCount += manifestResult.itemCount;
-            XLSX.utils.book_append_sheet(workbook, manifestResult.worksheet, name);
-            imageAnchorsBySheet.set(name, manifestResult.imageAnchors);
-            if (manifestResult.styleSpec) reportStylesBySheet.set(name, manifestResult.styleSpec);
-            sheetCount += 1;
-          }
-        } catch (manifestError) {
-          console.error("Lỗi khi dựng sheet 'Ma hang theo lenh':", manifestError);
-        }
-      }
-      // Sheet "Tách theo lệnh" — chỉ có khi ngữ cảnh lệnh sản xuất & chọn >=2 lệnh.
-      try {
-        const breakdownResult = buildWorkOrderShipBreakdownSheet();
-        if (breakdownResult) {
-          const name = "Tach theo lenh";
-          totalItemCount += breakdownResult.itemCount;
-          XLSX.utils.book_append_sheet(workbook, breakdownResult.worksheet, name);
-          imageAnchorsBySheet.set(name, breakdownResult.imageAnchors);
-          if (breakdownResult.styleSpec) reportStylesBySheet.set(name, breakdownResult.styleSpec);
-          sheetCount += 1;
-        }
-      } catch (breakdownError) {
-        console.error("Lỗi khi dựng sheet 'Tach theo lenh':", breakdownError);
-      }
+      const appendSheet = (name, result) => {
+        if (!result) return;
+        totalItemCount += result.itemCount;
+        XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
+        imageAnchorsBySheet.set(name, result.imageAnchors);
+        if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
+        sheetCount += 1;
+      };
 
-      // Khi ngữ cảnh lệnh sản xuất & chọn >=2 lệnh: 2 sheet còn lại cũng TÁCH THEO LỆNH (cột theo lệnh),
-      // không gộp chung. Ngược lại (1 lệnh / đơn hàng): giữ 2 sheet gộp dựng từ bảng trên màn hình.
       const splitSelected = orderCheckContext.type === "workOrder" ? getSelectedWorkOrderCheckWoNos() : null;
       const useSplitSheets = Boolean(splitSelected && splitSelected.size >= 2);
 
+      // Dựng sheet "Theo san pham" TRƯỚC (khi tách theo lệnh) để lấy vị trí dòng từng sản phẩm,
+      // rồi gắn link nhảy sheet từ sheet "Ma hang theo lenh" sang đúng dòng đó.
+      const productSheetName = "Theo san pham";
+      let productSplitResult = null;
       if (useSplitSheets) {
-        [
-          { name: "Theo san pham", build: buildWorkOrderSplitProductSheet },
-          { name: "Gop tong phan cung", build: buildWorkOrderSplitConsolidatedSheet }
-        ].forEach(({ name, build }) => {
-          try {
-            const result = build();
-            if (!result) return;
-            totalItemCount += result.itemCount;
-            XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
-            imageAnchorsBySheet.set(name, result.imageAnchors);
-            if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
-            sheetCount += 1;
-          } catch (sheetError) {
-            console.error(`Lỗi khi dựng sheet tách theo lệnh "${name}":`, sheetError);
-          }
-        });
+        try { productSplitResult = buildWorkOrderSplitProductSheet(); }
+        catch (e) { console.error("Lỗi khi dựng sheet 'Theo san pham' (tách theo lệnh):", e); }
+      }
+      const manifestLinkMap = (productSplitResult && productSplitResult.productRowMap)
+        ? new Map(Array.from(productSplitResult.productRowMap.entries()).map(([code, row]) => [code, { sheetName: productSheetName, row }]))
+        : null;
+
+      // Sheet 1: danh sách mã hàng theo lệnh (có link nhảy sang Theo sản phẩm nếu có).
+      if (orderCheckContext.type === "workOrder") {
+        try { appendSheet("Ma hang theo lenh", buildWorkOrderProductManifestSheet(manifestLinkMap)); }
+        catch (e) { console.error("Lỗi khi dựng sheet 'Ma hang theo lenh':", e); }
+      }
+      // Sheet 2: tách theo lệnh (chi tiết mã chính/thay thế) — chỉ khi >=2 lệnh.
+      try { appendSheet("Tach theo lenh", buildWorkOrderShipBreakdownSheet()); }
+      catch (e) { console.error("Lỗi khi dựng sheet 'Tach theo lenh':", e); }
+
+      if (useSplitSheets) {
+        appendSheet(productSheetName, productSplitResult);
+        try { appendSheet("Gop tong phan cung", buildWorkOrderSplitConsolidatedSheet()); }
+        catch (e) { console.error("Lỗi khi dựng sheet 'Gop tong phan cung' (tách theo lệnh):", e); }
       } else {
         try {
           exportSheets.forEach(({ mode, name }) => {
-            // Dựng từng sheet trong try riêng: một sheet lỗi cũng không làm hỏng cả lần xuất.
-            try {
-              const result = buildOrderCheckExportSheet(mode);
-              totalItemCount += result.itemCount;
-              XLSX.utils.book_append_sheet(workbook, result.worksheet, name);
-              imageAnchorsBySheet.set(name, result.imageAnchors);
-              if (result.styleSpec) reportStylesBySheet.set(name, result.styleSpec);
-              sheetCount += 1;
-            } catch (sheetError) {
-              console.error(`Lỗi khi dựng sheet "${name}" của báo cáo kiểm tra vật tư:`, sheetError);
-            }
+            try { appendSheet(name, buildOrderCheckExportSheet(mode)); }
+            catch (sheetError) { console.error(`Lỗi khi dựng sheet "${name}" của báo cáo kiểm tra vật tư:`, sheetError); }
           });
         } finally {
           orderCheckViewMode = previousMode;
@@ -17387,6 +17437,7 @@
   </script>
 </body>
 </html>
+
 
 
 
