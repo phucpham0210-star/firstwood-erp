@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260716221103"></script>
-  <script src="preview-images-data.js?v=20260716221103"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260717003444"></script>
+  <script src="preview-images-data.js?v=20260717003444"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -5654,11 +5654,16 @@
       const pp = clean(child?.pp);
       const name = clean(child?.name);
       if (!pp && !name) return null;
-      return getHardwareCatalog().find((item) => {
+      const eligible = getHardwareCatalog().filter((item) => {
         const type = normalizeHardwareType(item.type);
-        if (type !== "Mã thay thế" && type !== "Mã chi tiết") return false;
-        return (pp && clean(item.pp) === pp) || (name && clean(item.name) === name);
-      }) || null;
+        return type === "Mã thay thế" || type === "Mã chi tiết";
+      });
+      // ƯU TIÊN TUYỆT ĐỐI theo MÃ PP: mã là duy nhất, còn TÊN có thể trùng ở nhiều mã
+      // (vd "ART TWS TOWER MOUI" có cả 4912-4001 và 4912-4001 (HWTWS-102)).
+      // Nếu đã nhập mã PP thì CHỈ khớp theo mã — không được rơi về khớp tên, tránh bị ghi đè ngược mã đã chọn.
+      if (pp) return eligible.find((item) => clean(item.pp) === pp) || null;
+      // Chưa nhập mã PP thì mới cho khớp theo tên (để tự điền mã từ tên).
+      return eligible.find((item) => clean(item.name) === name) || null;
     }
 
     // Nạp gợi ý (autocomplete) cho dòng con: chỉ phần cứng loại "Mã thay thế" hoặc "Mã chi tiết" mới hợp lệ.
@@ -6046,6 +6051,46 @@
         return aBlankPpWithName ? 1 : -1;
       });
       rows.forEach((row) => tbody.appendChild(row));
+    }
+
+    // Xếp bảng Mã Phần Cứng: mỗi MÃ CHÍNH kèm ngay các MÃ THAY THẾ của nó bên dưới
+    // (theo cấu hình ở tab "Mã Phần Cứng Sản Xuất"). Mã phụ không gắn mã chính nào -> giữ ở cuối.
+    // Trả về true nếu thứ tự dòng thực sự đổi (để bên gọi biết mà lưu lại).
+    function sortHardwareRowsByMainThenSub() {
+      const table = document.querySelector("[data-hardware-table]");
+      const tbody = table?.tBodies[0];
+      if (!tbody || tbody.querySelector(".editing-row")) return false;
+      const rows = Array.from(tbody.rows);
+      if (rows.length < 2) return false;
+      const ppKeyOf = (row) => getProductionHardwareKey(row.cells[4]?.innerText || "");
+      const byPpKey = new Map();
+      rows.forEach((row) => {
+        const key = ppKeyOf(row);
+        if (key && !byPpKey.has(key)) byPpKey.set(key, row);
+      });
+      const emitted = new Set();
+      const ordered = [];
+      const push = (row) => {
+        if (!row || emitted.has(row)) return;
+        emitted.add(row);
+        ordered.push(row);
+      };
+      rows.forEach((row) => {
+        const type = getHardwareType(row);
+        if (type === "Mã thay thế" || type === "Mã chi tiết") return; // mã phụ: chờ xếp dưới mã chính của nó
+        push(row);
+        const settings = productionHardwareSettings[ppKeyOf(row)] || {};
+        (Array.isArray(settings.children) ? settings.children : []).forEach((child) => {
+          push(byPpKey.get(getProductionHardwareKey(child?.pp)));
+        });
+      });
+      rows.forEach((row) => push(row)); // phần còn lại (mã phụ mồ côi...) giữ nguyên thứ tự, xuống cuối
+      // Chỉ ghi lại DOM khi thứ tự thật sự đổi -> tránh nhấp nháy và tránh lưu thừa.
+      if (ordered.every((row, index) => row === rows[index])) return false;
+      const fragment = document.createDocumentFragment();
+      ordered.forEach((row) => fragment.appendChild(row));
+      tbody.appendChild(fragment);
+      return true;
     }
 
     function getHardwareSortText(row, columnIndex) {
@@ -7740,9 +7785,17 @@
         hidden: false
       };
       renderProductionHardwareTable();
+      resortHardwareRowsAfterProductionSettingsChange();
       scheduleWarehouseStockRefresh(120);
       scheduleSaveAppData();
       showToast("Đã lưu dòng con.");
+    }
+
+    // Cấu hình mã thay thế vừa đổi -> xếp lại bảng Mã Phần Cứng (mã chính kèm mã thay thế ngay dưới) và lưu nếu thứ tự đổi.
+    function resortHardwareRowsAfterProductionSettingsChange() {
+      if (sortHardwareRowsByMainThenSub()) {
+        saveAppDataTableRows("[data-hardware-table]", "hardwareRows", "", { skipAudit: true });
+      }
     }
 
     function deleteProductionHardwareChildRow(row) {
@@ -7757,6 +7810,7 @@
         children
       };
       renderProductionHardwareTable();
+      resortHardwareRowsAfterProductionSettingsChange();
       scheduleWarehouseStockRefresh(120);
       scheduleSaveAppData();
       showToast("Đã xóa dòng con.");
@@ -11449,8 +11503,10 @@
             updatedRows = syncBomHardwareFields(hardwarePostSync.oldHardware, hardwarePostSync.newHardware);
           }
           // Chỉ sắp xếp lại (làm đổi thứ tự dòng) khi mã PP thay đổi.
-          const hardwareRowsReordered = hardwarePpChanged;
-          if (hardwareRowsReordered) sortHardwareRowsWithBlankPpLast();
+          let hardwareRowsReordered = hardwarePpChanged;
+          if (hardwarePpChanged) sortHardwareRowsWithBlankPpLast();
+          // Xếp mã chính kèm mã thay thế của nó ngay dưới (chạy cả khi cấu hình mã thay thế vừa đổi).
+          if (sortHardwareRowsByMainThenSub()) hardwareRowsReordered = true;
           scheduleBomHardwareSuggestionsRefresh();
           scheduleSheet2ItemCodeSuggestionsRefresh();
           scheduleProductionHardwareTableRefresh(180);
@@ -11525,6 +11581,34 @@
           runRefresh();
         }
       }, delay);
+    }
+
+    // Xếp lại danh sách tồn kho: mỗi MÃ CHÍNH kèm ngay các MÃ THAY THẾ của nó bên dưới
+    // (theo cấu hình ở tab "Mã Phần Cứng Sản Xuất"). Mã phụ không gắn mã chính nào -> dồn xuống cuối.
+    function orderWarehouseStockByMainThenSub(groupedCatalog) {
+      const byPpKey = new Map();
+      groupedCatalog.forEach((item) => {
+        const key = getProductionHardwareKey(item.pp);
+        if (key && !byPpKey.has(key)) byPpKey.set(key, item);
+      });
+      const emitted = new Set();
+      const ordered = [];
+      const push = (item) => {
+        if (!item || emitted.has(item)) return;
+        emitted.add(item);
+        ordered.push(item);
+      };
+      groupedCatalog.forEach((item) => {
+        const type = normalizeHardwareType(item.type);
+        if (type === "Mã thay thế" || type === "Mã chi tiết") return; // mã phụ: chờ xếp dưới mã chính của nó
+        push(item);
+        const settings = productionHardwareSettings[getProductionHardwareKey(item.pp)] || {};
+        (Array.isArray(settings.children) ? settings.children : []).forEach((child) => {
+          push(byPpKey.get(getProductionHardwareKey(child?.pp)));
+        });
+      });
+      groupedCatalog.forEach((item) => push(item)); // phần còn lại (mã phụ mồ côi...) giữ nguyên thứ tự, xuống cuối
+      return ordered;
     }
 
     function refreshWarehouseStockBalances() {
@@ -11920,7 +12004,7 @@
         const outboundTotals = stockContext.outboundTotals;
         const reservedTotals = reservationPlan.reservedTotals;
 
-        const groupedCatalog = Array.from(catalog.reduce((map, item) => {
+        const groupedCatalog = orderWarehouseStockByMainThenSub(Array.from(catalog.reduce((map, item) => {
           const pp = String(item.pp || "").trim();
           const key = getWarehouseGroupKey(item);
           if (!key) return map;
@@ -11934,7 +12018,7 @@
             group.status = group.status || item.status;
           }
           return map;
-        }, new Map()).values());
+        }, new Map()).values()));
 
         groupedCatalog.forEach(item => {
           const pp = item.pp;
@@ -11974,16 +12058,21 @@
             statusHtml = `<span class="badge red">Low Stock</span>`;
           }
 
+          // Mã thay thế/chi tiết xếp ngay dưới mã chính của nó -> đánh dấu ↳ + nền xanh nhạt cho dễ nhìn.
+          const hwType = normalizeHardwareType(item.type);
+          const isSubType = hwType === "Mã thay thế" || hwType === "Mã chi tiết";
           const tr = document.createElement("tr");
           tr.dataset.warehouseFilterRow = "stock";
           tr.dataset.filterName = item.name || "";
           tr.dataset.filterFw = item.fw || "";
           tr.dataset.filterPp = item.pp || "";
+          tr.dataset.defectQty = slLoi; // SL lỗi không hiện trên bảng nhưng cần cho file Excel (để Nhập−Lỗi−Xuất−Giữ khớp)
+          if (isSubType) tr.style.background = "rgba(34, 197, 94, 0.07)";
           tr.innerHTML = `
             <td>${renderHardwarePreviewBox(item.pp)}</td>
-            <td>${item.name}</td>
+            <td${isSubType ? ' style="padding-left:18px;"' : ""}>${item.name}</td>
             <td>${item.fw}</td>
-            <td>${item.pp}</td>
+            <td>${isSubType ? '<span style="color:#22c55e; font-weight:900;">↳ </span>' : ""}${item.pp}</td>
             <td>${item.uom}</td>
             <td>${statusHtml}</td>
             <td>${slNhap.toLocaleString()}</td>
@@ -12006,7 +12095,13 @@
         if (!pendingRows.length) {
           pendingTbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted); font-size:12px; font-weight:800;">Không có phần cứng nào đang bị giữ cho lệnh sản xuất.</td></tr>`;
         } else {
-          const groupedPendingRows = Array.from(pendingRows.reduce((map, row) => {
+          // Dòng "chờ sản xuất" không mang sẵn Loại mã -> tra từ bảng Mã Phần Cứng để xếp cặp chính/phụ.
+          const pendingTypeByPpKey = new Map();
+          warehouseCatalog.forEach((item) => {
+            const key = getProductionHardwareKey(item.pp);
+            if (key && !pendingTypeByPpKey.has(key)) pendingTypeByPpKey.set(key, normalizeHardwareType(item.type));
+          });
+          const groupedPendingRows = orderWarehouseStockByMainThenSub(Array.from(pendingRows.reduce((map, row) => {
             const key = getWarehouseGroupKey(row);
             if (!key) return map;
             if (!map.has(key)) {
@@ -12024,9 +12119,10 @@
             return map;
           }, new Map()).values()).map(row => ({
             ...row,
+            type: pendingTypeByPpKey.get(getProductionHardwareKey(row.pp)) || "Mã chính",
             woNo: Array.from(row.woNos).join(", ") || "-",
             productCodes: Array.from(row.productCodes).filter(Boolean).sort((a, b) => a.localeCompare(b))
-          }));
+          })));
           warehouseCardData.pendingRows = groupedPendingRows;
 
           groupedPendingRows.forEach(row => {
@@ -12035,17 +12131,21 @@
             const productCodeButton = productCodes.length
               ? `<button class="mini-action primary" type="button" onclick="showPendingProductCodes('${encodedProductCodes}', '${row.name.replace(/'/g, "\\'")}', event)" title="Xem danh sách mã sản phẩm">...</button>`
               : `<span style="color: var(--muted);">-</span>`;
+            // Mã thay thế/chi tiết xếp ngay dưới mã chính của nó -> đánh dấu ↳ + nền xanh nhạt (giống bảng Tồn kho).
+            const pendingType = normalizeHardwareType(row.type);
+            const isPendingSub = pendingType === "Mã thay thế" || pendingType === "Mã chi tiết";
             const tr = document.createElement("tr");
             tr.dataset.warehouseFilterRow = "pending";
             tr.dataset.filterName = row.name || "";
             tr.dataset.filterFw = row.fw || "";
             tr.dataset.filterPp = row.pp || "";
             tr.dataset.filterWo = row.woNo || "";
+            if (isPendingSub) tr.style.background = "rgba(34, 197, 94, 0.07)";
             tr.innerHTML = `
               <td>${renderHardwarePreviewBox(row.pp)}</td>
-              <td>${row.name}</td>
+              <td${isPendingSub ? ' style="padding-left:18px;"' : ""}>${row.name}</td>
               <td>${row.fw}</td>
-              <td>${row.pp}</td>
+              <td>${isPendingSub ? '<span style="color:#22c55e; font-weight:900;">↳ </span>' : ""}${row.pp}</td>
               <td>${row.uom}</td>
               <td>${renderStatusBadge(row.status)}</td>
               <td style="font-weight:800; color:var(--text-blue);">${row.woNo}</td>
@@ -13891,6 +13991,110 @@
       }
     }
 
+    // Xuất Excel bảng TỒN KHO (sheet Kho vật tư → tab Tồn kho): theo đúng bộ lọc đang áp dụng, kèm ảnh phần cứng.
+    async function exportWarehouseStockWorkbook() {
+      if (typeof XLSX === "undefined") {
+        showToast("Không tìm thấy thư viện Excel. Vui lòng kiểm tra file xlsx.full.min.js.");
+        return;
+      }
+      const bodyRows = Array.from(document.querySelectorAll('[data-warehouse-stock-table] tbody tr[data-warehouse-filter-row="stock"]'))
+        .filter((row) => !row.classList.contains("is-hidden"));
+      if (!bodyRows.length) {
+        showToast("Không có dòng tồn kho nào để xuất (kiểm tra lại bộ lọc).");
+        return;
+      }
+      const text = (row, i) => repairVietnameseMojibake(row.cells[i]?.innerText.replace(/\s+/g, " ").trim() || "");
+      const num = (row, i) => Math.round(parseFloat(String(row.cells[i]?.innerText || "").replace(/[^\d.-]/g, "")) || 0);
+
+      const headers = [
+        "Hình ảnh / Preview",
+        "Mã phần cứng PP / PP code",
+        "Mã phần cứng FW / FW code",
+        "Tên hàng / Item name",
+        "Đơn vị / UOM",
+        "Trạng thái / Status",
+        "SL Nhập (đã nhận) / Inbound (received)",
+        "SL Lỗi / Defective",
+        "SL Xuất / Outbound",
+        "SL đang bị giữ / Reserved",
+        "SL khả dụng / Available",
+        "Số Invoice / Invoice no"
+      ];
+      const COL_COUNT = headers.length;
+      const LAST_COL = COL_COUNT - 1;
+      const introLines = [
+        "BÁO CÁO TỒN KHO VẬT TƯ / HARDWARE STOCK BALANCE",
+        `Số dòng / Rows: ${bodyRows.length.toLocaleString()}`,
+        `Ngày xuất / Export date: ${new Date().toLocaleDateString("vi-VN")}`,
+        "GIẢI TRÌNH FILE — Tồn kho từng mã phần cứng tại thời điểm xuất file, để biết mỗi mã còn bao nhiêu hàng THỰC SỰ dùng được.   ||   FILE PURPOSE — Hardware stock balance at export time, showing how much of each code is actually usable.",
+        "GIẢI TRÌNH CÁCH TÍNH — SL khả dụng = SL Nhập − SL Lỗi − SL Xuất − SL đang bị giữ (phần đang giữ cho các lệnh sản xuất). LƯU Ý: 'SL Nhập' CHỈ tính phần ĐÃ NHẬN ở sheet Nhập khẩu — dòng nhập khẩu còn ở trạng thái 'Chưa nhận' KHÔNG được cộng vào tồn kho.   ||   HOW IT IS CALCULATED — Available = Inbound − Defective − Outbound − Reserved (held for work orders). NOTE: 'Inbound' counts ONLY the RECEIVED qty in the Import sheet — import lines still 'not received' do NOT add to stock."
+      ];
+      const aoa = introLines.map((line) => [line]);
+      const merges = introLines.map((_, r) => ({ s: { r, c: 0 }, e: { r, c: LAST_COL } }));
+      const headerRowIndex = aoa.length;
+      aoa.push(headers);
+      const rowHeights = { [headerRowIndex]: 30, 3: 46, 4: 60 };
+      const imageAnchors = [], dataRowIndices = [], negativeCells = [];
+      const wrapCells = [{ r: 3, c: 0 }, { r: 4, c: 0 }];
+
+      bodyRows.forEach((row) => {
+        const rowIndex = aoa.length;
+        // Ô Mã PP trên bảng có gắn dấu "↳" cho mã thay thế -> lấy mã sạch từ dataset để không hỏng mã & tra ảnh.
+        const pp = String(row.dataset.filterPp || "").trim() || text(row, 3).replace(/^↳\s*/, "");
+        const available = num(row, 9);
+        aoa.push([
+          "", pp, text(row, 2), text(row, 1), text(row, 4), text(row, 5),
+          num(row, 6),
+          Math.round(Number(row.dataset.defectQty) || 0),
+          num(row, 7), num(row, 8), available,
+          text(row, 10)
+        ]);
+        if (available < 0) negativeCells.push({ r: rowIndex, c: 10 });
+        dataRowIndices.push(rowIndex);
+        rowHeights[rowIndex] = 76;
+        const url = getHardwarePreviewExcelUrl(pp);
+        if (url) imageAnchors.push({ row: rowIndex, col: 0, imageUrl: url, name: pp || text(row, 1) || "Preview" });
+      });
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      worksheet["!cols"] = [
+        { wch: 16 }, { wch: 24 }, { wch: 22 }, { wch: 38 }, { wch: 10 }, { wch: 14 },
+        { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 18 }
+      ];
+      worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
+      worksheet["!merges"] = merges;
+      worksheet["!autofilter"] = { ref: `A${headerRowIndex + 1}:${XLSX.utils.encode_col(LAST_COL)}${aoa.length}` };
+      const sheetName = "Ton kho";
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+      const styleSpec = {
+        columns: COL_COUNT,
+        titleRows: [0, 1, 2, 3, 4],
+        headerRow: headerRowIndex,
+        bannerRows: [],
+        dataRows: dataRowIndices,
+        wrapCells,
+        subCells: [],
+        negativeCells
+      };
+      const stamp = new Date().toISOString().slice(0, 10);
+      const filename = `firstwood-ton-kho-${stamp}.xlsx`;
+      try {
+        const hasImages = await writeWorkbookXlsxWithImages(workbook, filename, new Map([[sheetName, imageAnchors]]), new Map([[sheetName, styleSpec]]));
+        showToast(hasImages ? "Đã xuất Tồn kho kèm hình ảnh." : "Đã xuất Tồn kho (chưa nhúng được ảnh phù hợp).");
+      } catch (error) {
+        console.error("Nhúng ảnh Tồn kho thất bại, chuyển sang xuất bản thường:", error);
+        try {
+          writeWorkbookXlsx(workbook, filename);
+          showToast("Đã xuất Tồn kho (bản không ảnh).");
+        } catch (fallbackError) {
+          console.error("Xuất Tồn kho thất bại:", fallbackError);
+          showToast(`Lỗi xuất file: ${fallbackError?.message || fallbackError}. Mở F12 → Console gửi tôi dòng lỗi đỏ.`);
+        }
+      }
+    }
+
     function exportCurrentTable() {
       if (getCurrentSection()?.id === "sheet-bom") {
         openSheet2ExportModal();
@@ -13898,6 +14102,11 @@
       }
       if (getCurrentSection()?.id === "sheet-import") {
         openSheet3ExportModal();
+        return;
+      }
+      // Kho vật tư → tab Tồn kho: xuất Excel bảng tồn kho (kèm ảnh + giải trình), thay cho CSV thô.
+      if (getCurrentSection()?.id === "sheet-warehouse" && getActiveWarehouseTab() === "ton-kho") {
+        exportWarehouseStockWorkbook();
         return;
       }
       const table = getCurrentTable();
@@ -17136,6 +17345,7 @@
         normalizeSheet1AndSheet2SupplierDisplays();
         normalizeBomDepartmentDisplays();
         sortBomRowsByDepartment();
+        sortHardwareRowsByMainThenSub(); // xếp mã chính kèm mã thay thế của nó ngay dưới
         repairSheet1VietnameseText();
         clearHardwareRemarks();
         cachedAppDataPayload = { ...payload };
@@ -17437,6 +17647,7 @@
   </script>
 </body>
 </html>
+
 
 
 
