@@ -7,8 +7,8 @@
   <script src="site-config.js"></script>
   <script src="xlsx.full.min.js"></script>
   <script src="packaged-data.js"></script>
-  <script src="preview-hardware-pp-manifest.js?v=20260717003444"></script>
-  <script src="preview-images-data.js?v=20260717003444"></script>
+  <script src="preview-hardware-pp-manifest.js?v=20260717103727"></script>
+  <script src="preview-images-data.js?v=20260717103727"></script>
   <style>
     :root {
       --bg: #090d15;
@@ -10682,7 +10682,7 @@
       const LAST_COL = COL_COUNT - 1;
 
       const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
-      const sheetPurpose = "GIẢI TRÌNH SHEET — Chi tiết TỪNG mã phần cứng theo từng lệnh (mã chính + mã thay thế). Mỗi lệnh có 'SL cần' và 'Tồn dư sau' (âm/đỏ = thiếu). Mã thay thế dùng trước cho đến hết; phần thiếu dồn hết về mã chính để đặt mua. Cột 'Mã đang dùng' cho biết mã hàng nào đang dùng và bao nhiêu.   ||   SHEET — Detail per hardware code by order (main + substitute). Each order shows 'Qty needed' and 'Balance after' (negative/red = short). Substitutes are used first until depleted; the shortage is charged to the main code to purchase. 'Products using' lists which products consume it and how much.";
+      const sheetPurpose = "GIẢI TRÌNH SHEET — Chi tiết TỪNG mã phần cứng theo từng lệnh (mã chính + mã thay thế). Mỗi lệnh có 'SL cần' và 'Tồn dư sau' (âm/đỏ = thiếu). Mã thay thế dùng trước cho đến hết; phần thiếu dồn hết về mã chính để đặt mua. Cột 'Mã đang dùng' cho biết mã hàng nào đang dùng và bao nhiêu. CÓ CÔNG THỨC: sửa 'Tồn kho' hoặc 'SL cần' thì 'Tồn dư sau' tự tính lại.   ||   SHEET — Detail per hardware code by order (main + substitute). Each order shows 'Qty needed' and 'Balance after' (negative/red = short). Substitutes are used first until depleted; the shortage is charged to the main code. 'Products using' lists which products consume it and how much. HAS FORMULAS: edit 'Stock' or 'Qty needed' and 'Balance after' recalculates.";
       const aoa = [
         ["BÁO CÁO TÁCH NHU CẦU THEO LỆNH SẢN XUẤT / DEMAND SPLIT BY WORK ORDER"],
         [contextLabel],
@@ -10731,6 +10731,22 @@
       });
 
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      // CÔNG THỨC: Tồn dư sau lệnh 1 = Tồn kho − SL cần lệnh 1; lệnh sau = tồn dư lệnh trước − SL cần lệnh đó.
+      // Cột: 5 = Tồn kho, 6+2i = SL cần lệnh i, 7+2i = Tồn dư sau lệnh i.
+      dataRowIndices.forEach((r) => {
+        const excelRow = r + 1;
+        workOrders.forEach((_, i) => {
+          const prevCol = i === 0 ? 5 : 7 + (i - 1) * 2;
+          const balRef = `${XLSX.utils.encode_col(7 + i * 2)}${excelRow}`;
+          const cur = worksheet[balRef];
+          if (!cur || cur.v === "" || cur.v === undefined) return;
+          worksheet[balRef] = {
+            t: "n",
+            v: Number(cur.v) || 0,
+            f: `${XLSX.utils.encode_col(prevCol)}${excelRow}-${XLSX.utils.encode_col(6 + i * 2)}${excelRow}`
+          };
+        });
+      });
       const woCols = [];
       workOrders.forEach(() => woCols.push({ wch: 16 }, { wch: 18 }));
       worksheet["!cols"] = [
@@ -10863,7 +10879,7 @@
     }
 
     // Dựng 1 sheet "cột theo lệnh" từ danh sách dòng (có thể chèn dòng tiêu đề sản phẩm). Dùng chung cho 2 sheet mới.
-    function buildPerWoSheetFromRows(sheetTitle, contextLabel, noteLine, workOrders, displayRows, extraColHeader) {
+    function buildPerWoSheetFromRows(sheetTitle, contextLabel, noteLine, workOrders, displayRows, extraColHeader, useBalanceFormula) {
       const hasExtra = Boolean(extraColHeader);
       const headers = ["Hình ảnh / Preview", "Mã phần cứng PP / PP code", "Tên hàng / Item name", "Đơn vị / UOM"];
       if (hasExtra) headers.push(extraColHeader);
@@ -10923,6 +10939,25 @@
       });
 
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      // CÔNG THỨC (chỉ cho sheet gộp theo mã — nơi Tồn dư sau suy được từ chính dòng đó):
+      // Tồn dư sau lệnh 1 = Tồn kho − SL cần lệnh 1; lệnh sau = tồn dư lệnh trước − SL cần lệnh đó.
+      if (useBalanceFormula) {
+        const stockCol = hasExtra ? 5 : 4;
+        dataRowIndices.forEach((r) => {
+          const excelRow = r + 1;
+          workOrders.forEach((_, i) => {
+            const prevCol = i === 0 ? stockCol : stockCol + 2 + (i - 1) * 2;
+            const balRef = `${XLSX.utils.encode_col(stockCol + 2 + i * 2)}${excelRow}`;
+            const cur = worksheet[balRef];
+            if (!cur || cur.v === "" || cur.v === undefined) return;
+            worksheet[balRef] = {
+              t: "n",
+              v: Number(cur.v) || 0,
+              f: `${XLSX.utils.encode_col(prevCol)}${excelRow}-${XLSX.utils.encode_col(stockCol + 1 + i * 2)}${excelRow}`
+            };
+          });
+        });
+      }
       const woCols = []; workOrders.forEach(() => woCols.push({ wch: 16 }, { wch: 18 }));
       worksheet["!cols"] = [{ wch: 16 }, { wch: 22 }, { wch: 34 }, { wch: 10 }, ...(hasExtra ? [{ wch: 46 }] : []), { wch: 18 }, ...woCols];
       worksheet["!rows"] = aoa.map((_, i) => rowHeights[i] ? { hpt: rowHeights[i] } : {});
@@ -10969,8 +11004,8 @@
       }));
       const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
       return buildPerWoSheetFromRows("GỘP TỔNG PHẦN CỨNG THEO LỆNH / CONSOLIDATED BY WORK ORDER", contextLabel,
-        "GIẢI TRÌNH SHEET — GỘP mỗi mã phần cứng thành 1 dòng, tách theo từng lệnh (SL cần & Tồn dư sau), sắp mã thiếu nhiều nhất lên đầu; phần thiếu dồn về mã chính. Dùng để lập đơn mua nhanh.   ||   SHEET — One row per hardware code, split per order (qty needed & balance after), most-short first; shortage charged to the main code. Use it to raise purchase orders quickly.",
-        workOrders, displayRows);
+        "GIẢI TRÌNH SHEET — GỘP mỗi mã phần cứng thành 1 dòng, tách theo từng lệnh (SL cần & Tồn dư sau), sắp mã thiếu nhiều nhất lên đầu; phần thiếu dồn về mã chính. Dùng để lập đơn mua nhanh. CÓ CÔNG THỨC: sửa 'Tồn kho' hoặc 'SL cần' thì 'Tồn dư sau' tự tính lại.   ||   SHEET — One row per hardware code, split per order (qty needed & balance after), most-short first; shortage charged to the main code. HAS FORMULAS: edit 'Stock' or 'Qty needed' and 'Balance after' recalculates.",
+        workOrders, displayRows, null, true);
     }
 
     // Danh sách MÃ HÀNG (sản phẩm) theo lệnh: mỗi mã hàng 1 dòng, cột số lượng theo từng lệnh + tổng.
@@ -11043,9 +11078,9 @@
       const COL_COUNT = headers.length;
       const LAST_COL = COL_COUNT - 1;
       const contextLabel = `Lệnh sản xuất / Work orders: ${workOrders.map((wo) => wo.woNo).join(", ")}`;
-      const noteLine = "GIẢI TRÌNH SHEET — Danh sách mã hàng (thành phẩm) mỗi lệnh cần xuất: mã, part number, kích thước đóng gói và số lượng theo từng lệnh."
+      const noteLine = "GIẢI TRÌNH SHEET — Danh sách mã hàng (thành phẩm) mỗi lệnh cần xuất: mã, part number, kích thước đóng gói và số lượng theo từng lệnh. CÓ CÔNG THỨC: sửa SL của lệnh nào thì 'Tổng SL' tự tính lại."
         + (hasLinks ? " Bấm vào Mã sản phẩm để nhảy sang sheet Theo sản phẩm." : "")
-        + "   ||   SHEET — Finished products each work order must ship: code, part number, packing size and quantity per order."
+        + "   ||   SHEET — Finished products each work order must ship: code, part number, packing size and quantity per order. HAS FORMULAS: edit any order's qty and 'Total qty' recalculates."
         + (hasLinks ? " Click a product code to jump to the by-product sheet." : "");
       const introLines = [
         "DANH SÁCH MÃ HÀNG THEO LỆNH / PRODUCT LIST BY WORK ORDER",
@@ -11072,6 +11107,17 @@
         if (link) linkCells.push({ excelRow: rowIndex + 1, sheetName: link.sheetName, targetRow: link.row });
       });
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      // CÔNG THỨC: Tổng SL = SUM(các cột SL của từng lệnh) -> sửa SL của lệnh nào là tổng tự tính lại.
+      const firstWoCol = 7, lastWoCol = 6 + workOrders.length, totalCol = 7 + workOrders.length;
+      dataRowIndices.forEach((r) => {
+        const excelRow = r + 1;
+        const ref = `${XLSX.utils.encode_col(totalCol)}${excelRow}`;
+        worksheet[ref] = {
+          t: "n",
+          v: Number(worksheet[ref]?.v) || 0,
+          f: `SUM(${XLSX.utils.encode_col(firstWoCol)}${excelRow}:${XLSX.utils.encode_col(lastWoCol)}${excelRow})`
+        };
+      });
       // Gắn link nội bộ (nhảy tới đúng dòng sản phẩm ở sheet Theo sản phẩm) lên ô Mã sản phẩm (cột B).
       linkCells.forEach(({ excelRow, sheetName, targetRow }) => {
         const ref = `B${excelRow}`;
@@ -17647,6 +17693,7 @@
   </script>
 </body>
 </html>
+
 
 
 
